@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
+import Dashboard from './pages/Dashboard';
 import Analyze from './pages/Analyze';
 import Extract from './pages/Extract';
 import Migrate from './pages/Migrate';
@@ -46,13 +47,6 @@ function App() {
 
   const [editingConnectionId, setEditingConnectionId] = useState<number | null>(null);
 
-  const editConnection = (connectionId: number) => {
-    // Set the editing connection ID
-    setEditingConnectionId(connectionId);
-    // Open the settings modal
-    setIsSettingsModalOpen(true);
-  };
-
   const openSettingsModal = () => setIsSettingsModalOpen(true);
   const closeSettingsModal = () => setIsSettingsModalOpen(false);
 
@@ -64,7 +58,9 @@ function App() {
           <TopBar onSettingsClick={openSettingsModal} />
           <main className="flex-1 overflow-y-auto p-6">
             <Routes>
-              <Route path="/" element={<Analyze connections={connections} onDeleteConnection={deleteConnection} onEditConnection={editConnection} />} />
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/analyze" element={<Analyze connections={connections} />} />
               <Route path="/extract" element={<Extract />} />
               <Route path="/migrate" element={<Migrate />} />
               <Route path="/reconcile" element={<Reconcile />} />

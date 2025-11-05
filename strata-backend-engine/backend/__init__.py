@@ -1,1 +1,0 @@
-# Strata backend package

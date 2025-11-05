@@ -14,5 +14,10 @@ export default defineConfig({
         secure: false,
       }
     }
-  }
+  },
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+  },
+  appType: 'spa', // Set the app type to single page application
 })

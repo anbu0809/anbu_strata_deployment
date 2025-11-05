@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Play, CheckCircle, AlertCircle, Download, Database, Server, BarChart3 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Play, CheckCircle, AlertCircle, Download, Database, Server } from 'lucide-react';
 import { ValidationItem } from '../types';
 
 export default function Reconcile() {
@@ -290,8 +290,6 @@ export default function Reconcile() {
                               <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                                 item.status === 'Pass' 
                                   ? 'bg-[#085690] text-white' 
-                                  : item.status === 'Warning'
-                                  ? 'bg-[#ec6225] text-white'
                                   : 'bg-[#ec6225] text-white'
                               }`}>
                                 {item.status}
@@ -325,6 +323,12 @@ export default function Reconcile() {
           </p>
         </div>
       )}
+
+      {/* Footer */}
+      <div className="mt-12 text-center">
+        <p className="text-lg font-bold text-gray-900 mb-2">DecisionMinds</p>
+        <p className="text-sm text-gray-600">Powered by DecisionMinds</p>
+      </div>
     </div>
   );
 };

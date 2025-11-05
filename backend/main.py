@@ -7,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 # Add the parent directory to the path so we can import backend modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.routes import connections, session, analyze, extract, migrate, validate, export_routes, reset
+# Use absolute imports since we're running the module directly
+from backend.routes import connections, session, analyze, extract, migrate, validate
 from backend.database import init_db
 
 # Load environment variables from .env file
@@ -34,8 +35,6 @@ app.include_router(analyze.router, prefix="/api/analyze", tags=["analyze"])
 app.include_router(extract.router, prefix="/api/extract", tags=["extract"])
 app.include_router(migrate.router, prefix="/api/migrate", tags=["migrate"])
 app.include_router(validate.router, prefix="/api/validate", tags=["validate"])
-app.include_router(export_routes.router, prefix="/api/export", tags=["export"])
-app.include_router(reset.router, prefix="/api", tags=["reset"])
 
 @app.get("/")
 async def root():

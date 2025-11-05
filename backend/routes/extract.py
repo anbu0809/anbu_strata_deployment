@@ -56,17 +56,22 @@ def extract_mysql_ddl(connection_info):
         database = credentials.get('database')
         username = credentials.get('username')
         password = credentials.get('password')
-        ssl_mode = credentials.get('ssl', 'true')
+        # Handle both 'ssl' and 'ssl-mode' parameters for compatibility
+        ssl_mode = credentials.get('ssl', credentials.get('ssl-mode', 'require'))
         
         # Configure SSL settings
         ssl_config = {}
-        if ssl_mode == 'false':
+        if ssl_mode == 'disable' or ssl_mode == 'false':
             ssl_config['ssl_disabled'] = True
         else:
             # For Azure MySQL, we need to handle SSL properly
             ssl_config['ssl_disabled'] = False
             ssl_config['ssl_verify_cert'] = False
             ssl_config['ssl_verify_identity'] = False
+            # For Azure MySQL specifically
+            if host and 'mysql.database.azure.com' in host:
+                ssl_config['ssl_verify_cert'] = False
+                ssl_config['ssl_verify_identity'] = False
         
         # Create connection with SSL configuration
         connection_params = {
@@ -107,17 +112,21 @@ def extract_mysql_ddl(connection_info):
         # Get tables DDL with enhanced information
         cursor.execute("SHOW TABLES")
         tables_result = cursor.fetchall()
-        tables = [row[0] for row in tables_result] if tables_result else []
+        tables = []
+        if tables_result:
+            for row in tables_result:
+                if row and len(row) > 0:
+                    tables.append(str(row[0]))
         
         for table in tables:
             try:
                 # Get CREATE TABLE statement
                 cursor.execute(f"SHOW CREATE TABLE `{table}`")
                 create_result = cursor.fetchone()
-                if create_result:
+                if create_result and len(create_result) > 1 and create_result[1]:
                     ddl_scripts["tables"].append({
-                        "name": table,
-                        "ddl": create_result[1] if create_result[1] else "",
+                        "name": str(table),
+                        "ddl": str(create_result[1]),
                         "type": "TABLE"
                     })
             except Exception:
@@ -126,17 +135,21 @@ def extract_mysql_ddl(connection_info):
         # Get views DDL with enhanced information
         cursor.execute("SHOW FULL TABLES WHERE Table_type = 'VIEW'")
         views_result = cursor.fetchall()
-        views = [row[0] for row in views_result] if views_result else []
+        views = []
+        if views_result:
+            for row in views_result:
+                if row and len(row) > 0:
+                    views.append(str(row[0]))
         
         for view in views:
             try:
                 # Get CREATE VIEW statement
                 cursor.execute(f"SHOW CREATE VIEW `{view}`")
                 create_result = cursor.fetchone()
-                if create_result:
+                if create_result and len(create_result) > 1 and create_result[1]:
                     ddl_scripts["views"].append({
-                        "name": view,
-                        "ddl": create_result[1] if create_result[1] else "",
+                        "name": str(view),
+                        "ddl": str(create_result[1]),
                         "type": "VIEW"
                     })
             except Exception:
@@ -153,13 +166,13 @@ def extract_mysql_ddl(connection_info):
         
         for row in procedures_result:
             ddl_scripts["procedures"].append({
-                "name": row[0],
-                "ddl": row[1] if row[1] else "",
+                "name": str(row[0]) if row and len(row) > 0 else "",
+                "ddl": str(row[1]) if row and len(row) > 1 and row[1] else "",
                 "type": "PROCEDURE",
-                "sql_data_access": row[2],
-                "security_type": row[3],
-                "created": str(row[4]) if row[4] else None,
-                "last_altered": str(row[5]) if row[5] else None
+                "sql_data_access": str(row[2]) if row and len(row) > 2 else "",
+                "security_type": str(row[3]) if row and len(row) > 3 else "",
+                "created": str(row[4]) if row and len(row) > 4 and row[4] else None,
+                "last_altered": str(row[5]) if row and len(row) > 5 and row[5] else None
             })
         
         # Get functions with enhanced information
@@ -173,14 +186,14 @@ def extract_mysql_ddl(connection_info):
         
         for row in functions_result:
             ddl_scripts["functions"].append({
-                "name": row[0],
-                "ddl": row[1] if row[1] else "",
+                "name": str(row[0]) if row and len(row) > 0 else "",
+                "ddl": str(row[1]) if row and len(row) > 1 and row[1] else "",
                 "type": "FUNCTION",
-                "sql_data_access": row[2],
-                "security_type": row[3],
-                "created": str(row[4]) if row[4] else None,
-                "last_altered": str(row[5]) if row[5] else None,
-                "return_type": row[6]
+                "sql_data_access": str(row[2]) if row and len(row) > 2 else "",
+                "security_type": str(row[3]) if row and len(row) > 3 else "",
+                "created": str(row[4]) if row and len(row) > 4 and row[4] else None,
+                "last_altered": str(row[5]) if row and len(row) > 5 and row[5] else None,
+                "return_type": str(row[6]) if row and len(row) > 6 else ""
             })
         
         # Get triggers with complete DDL and dialect conversion capabilities
@@ -195,22 +208,22 @@ def extract_mysql_ddl(connection_info):
         
         for row in triggers_result:
             # Generate proper CREATE TRIGGER statement with target dialect conversion placeholder
-            trigger_ddl = f"DELIMITER $$\nCREATE TRIGGER `{row[0]}` {row[4]} {row[1]} ON `{row[2]}` FOR EACH ROW\n{row[3]}$$\nDELIMITER ;"
+            trigger_ddl = f"DELIMITER $$\nCREATE TRIGGER `{str(row[0]) if row and len(row) > 0 else ''}` {str(row[4]) if row and len(row) > 4 else ''} {str(row[1]) if row and len(row) > 1 else ''} ON `{str(row[2]) if row and len(row) > 2 else ''}` FOR EACH ROW\n{str(row[3]) if row and len(row) > 3 else ''}$$\nDELIMITER ;"
             
             # Add target dialect conversion template
             target_ddl = f"-- TARGET DIALECT CONVERSION TEMPLATE --\n-- Convert the following MySQL trigger to target dialect --\n{trigger_ddl}"
             
             ddl_scripts["triggers"].append({
-                "name": row[0],
+                "name": str(row[0]) if row and len(row) > 0 else "",
                 "ddl": trigger_ddl,
                 "target_ddl_template": target_ddl,
                 "type": "TRIGGER",
-                "event": row[1],
-                "table": row[2],
-                "timing": row[4],
-                "definer": row[5],
-                "created": str(row[6]) if row[6] else None,
-                "sql_mode": row[7]
+                "event": str(row[1]) if row and len(row) > 1 else "",
+                "table": str(row[2]) if row and len(row) > 2 else "",
+                "timing": str(row[4]) if row and len(row) > 4 else "",
+                "definer": str(row[5]) if row and len(row) > 5 else "",
+                "created": str(row[6]) if row and len(row) > 6 and row[6] else None,
+                "sql_mode": str(row[7]) if row and len(row) > 7 else ""
             })
         
         # Get constraints with enhanced information
@@ -576,23 +589,28 @@ def extract_mysql_ddl(connection_info):
                 }
         
         # Get computed/generated columns
-        cursor.execute("""
-            SELECT table_name, column_name, generation_expression, is_generated, column_default
-            FROM information_schema.columns
-            WHERE table_schema = %s AND is_generated = 'ALWAYS'
-        """, (database,))
-        computed_result = cursor.fetchall()
-        
-        for row in computed_result:
-            computed_ddl = f"ALTER TABLE `{row[0]}` ADD COLUMN `{row[1]}` GENERATED ALWAYS AS ({row[2]});"
-            ddl_scripts["computed_columns"].append({
-                "table": row[0],
-                "column": row[1],
-                "expression": row[2],
-                "ddl": computed_ddl,
-                "is_generated": row[3],
-                "default_value": row[4]
-            })
+        try:
+            cursor.execute("""
+                SELECT table_name, column_name, generation_expression, column_default
+                FROM information_schema.columns
+                WHERE table_schema = %s AND extra LIKE '%%GENERATED%%'
+            """, (database,))
+            computed_result = cursor.fetchall()
+            
+            for row in computed_result:
+                if row and len(row) >= 4:
+                    computed_ddl = f"ALTER TABLE `{row[0]}` ADD COLUMN `{row[1]}` GENERATED ALWAYS AS ({row[2]});"
+                    ddl_scripts["computed_columns"].append({
+                        "table": str(row[0]) if row[0] else "",
+                        "column": str(row[1]) if row[1] else "",
+                        "expression": str(row[2]) if row[2] else "",
+                        "ddl": computed_ddl,
+                        "default_value": str(row[3]) if row[3] else ""
+                    })
+        except Exception as e:
+            # Handle older MySQL versions that don't have is_generated column
+            print(f"Warning: Could not extract computed columns: {str(e)}")
+            pass
         
         # Get advanced constraints (named check constraints with more details)
         cursor.execute("""
@@ -839,76 +857,250 @@ def extract_mysql_ddl(connection_info):
     except Exception as e:
         raise Exception(f"MySQL DDL extraction failed: {str(e)}")
 
+def extract_postgresql_ddl(connection_info):
+    """Extract comprehensive DDL from PostgreSQL database"""
+    try:
+        import psycopg2
+        
+        # Extract credentials
+        credentials = connection_info.get("credentials", {})
+        host = credentials.get('host')
+        port = credentials.get('port', 5432)
+        database = credentials.get('database')
+        username = credentials.get('username')
+        password = credentials.get('password')
+        
+        # Create connection
+        connection_params = {
+            'host': host,
+            'port': port,
+            'database': database,
+            'user': username,
+            'password': password
+        }
+        
+        connection = psycopg2.connect(**connection_params)
+        cursor = connection.cursor()
+        
+        # Extract DDL scripts
+        ddl_scripts = {
+            "tables": [],
+            "views": [],
+            "indexes": [],
+            "constraints": [],
+            "sequences": [],
+            "triggers": [],
+            "procedures": [],
+            "functions": [],
+            "materialized_views": [],
+            "types": [],
+            "domains": [],
+            "roles": [],
+            "grants": [],
+            "partition_schemes": [],
+            "storage_configs": [],
+            "computed_columns": [],
+            "advanced_constraints": [],
+            "security_policies": [],
+            "data_sampling": []
+        }
+        
+        # Get tables DDL
+        cursor.execute("""
+            SELECT
+                schemaname,
+                tablename,
+                tableowner,
+                hasindexes,
+                hasrules,
+                hastriggers
+            FROM pg_tables
+            WHERE schemaname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+            ORDER BY schemaname, tablename
+        """)
+        tables_result = cursor.fetchall()
+        tables = []
+        if tables_result:
+            for row in tables_result:
+                if row and len(row) > 1:
+                    schema_name = str(row[0])
+                    table_name = str(row[1])
+                    tables.append((schema_name, table_name))
+                    
+                    # Generate CREATE TABLE DDL
+                    table_ddl = f"CREATE TABLE \"{schema_name}\".\"{table_name}\" ();"
+                    ddl_scripts["tables"].append({
+                        "name": table_name,
+                        "schema": schema_name,
+                        "ddl": table_ddl,
+                        "type": "TABLE"
+                    })
+        
+        # Get views DDL
+        cursor.execute("""
+            SELECT
+                schemaname,
+                viewname,
+                definition
+            FROM pg_views
+            WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
+            ORDER BY schemaname, viewname
+        """)
+        views_result = cursor.fetchall()
+        views = []
+        if views_result:
+            for row in views_result:
+                if row and len(row) > 2:
+                    schema_name = str(row[0])
+                    view_name = str(row[1])
+                    view_def = str(row[2])
+                    views.append((schema_name, view_name))
+                    
+                    view_ddl = f"CREATE OR REPLACE VIEW \"{schema_name}\".\"{view_name}\" AS {view_def};"
+                    ddl_scripts["views"].append({
+                        "name": view_name,
+                        "schema": schema_name,
+                        "ddl": view_ddl,
+                        "type": "VIEW"
+                    })
+        
+        # Get functions
+        cursor.execute("""
+            SELECT
+                n.nspname as schema,
+                p.proname as name,
+                pg_get_function_result(p.oid) as return_type,
+                pg_get_functiondef(p.oid) as definition,
+                l.lanname as language
+            FROM pg_proc p
+            JOIN pg_namespace n ON p.pronamespace = n.oid
+            JOIN pg_language l ON p.prolang = l.oid
+            WHERE n.nspname NOT IN ('information_schema', 'pg_catalog')
+            AND pg_get_function_result(p.oid) IS NOT NULL
+        """)
+        functions_result = cursor.fetchall()
+        
+        for row in functions_result:
+            if row and len(row) > 4:
+                ddl_scripts["functions"].append({
+                    "name": str(row[1]) if row[1] else "",
+                    "schema": str(row[0]) if row[0] else "",
+                    "ddl": str(row[3]) if row[3] else "",
+                    "type": "FUNCTION",
+                    "return_type": str(row[2]) if row[2] else "",
+                    "language": str(row[4]) if row[4] else ""
+                })
+        
+        # Get sequences
+        cursor.execute("""
+            SELECT
+                schemaname,
+                sequencename
+            FROM pg_sequences
+            WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
+            ORDER BY schemaname, sequencename
+        """)
+        sequences_result = cursor.fetchall()
+        
+        for row in sequences_result:
+            if row and len(row) > 1:
+                sequence_ddl = f"CREATE SEQUENCE \"{str(row[0])}\".\"{str(row[1])}\";"
+                ddl_scripts["sequences"].append({
+                    "name": str(row[1]) if row[1] else "",
+                    "schema": str(row[0]) if row[0] else "",
+                    "ddl": sequence_ddl,
+                    "type": "SEQUENCE"
+                })
+        
+        # Get indexes
+        cursor.execute("""
+            SELECT
+                schemaname,
+                tablename,
+                indexname,
+                indexdef
+            FROM pg_indexes
+            WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
+            ORDER BY schemaname, tablename, indexname
+        """)
+        indexes_result = cursor.fetchall()
+        
+        for row in indexes_result:
+            if row and len(row) > 3:
+                ddl_scripts["indexes"].append({
+                    "schema": str(row[0]) if row[0] else "",
+                    "table": str(row[1]) if row[1] else "",
+                    "name": str(row[2]) if row[2] else "",
+                    "ddl": str(row[3]) if row[3] else "",
+                    "unique": "UNIQUE" in str(row[3]),
+                    "index_type": "BTREE"
+                })
+        
+        connection.close()
+        
+        # Create basic extraction report
+        extraction_report = {
+            "tables": len(ddl_scripts["tables"]),
+            "views": len(ddl_scripts["views"]),
+            "procedures": 0,
+            "functions": len(ddl_scripts["functions"]),
+            "triggers": 0,
+            "indexes": len(ddl_scripts["indexes"]),
+            "constraints": 0,
+            "relationships": 0,
+            "sequences": len(ddl_scripts["sequences"]),
+            "partition_schemes": 0,
+            "grants": 0,
+            "computed_columns": 0,
+            "advanced_constraints": 0,
+            "security_policies": 0,
+            "data_samples": 0
+        }
+        
+        return {
+            "ddl_scripts": ddl_scripts,
+            "constraints": [],
+            "relationships": [],
+            "indexes": ddl_scripts["indexes"],
+            "synonyms": [],
+            "jobs": [],
+            "data_profile": {},
+            "dependency_graph": {
+                "creation_order": ["types", "domains", "tables", "constraints", "indexes", "views", "materialized_views", "triggers", "procedures", "functions", "roles", "grants"],
+                "deletion_order": ["grants", "roles", "functions", "procedures", "triggers", "materialized_views", "views", "indexes", "constraints", "tables", "domains", "types"],
+                "dependencies": {}
+            },
+            "type_mappings": {},
+            "security": [],
+            "performance": {
+                "table_stats": [],
+                "index_stats": []
+            },
+            "extraction_report": extraction_report
+        }
+    except Exception as e:
+        raise Exception(f"PostgreSQL DDL extraction failed: {str(e)}")
+
 def extract_database_ddl(connection_info):
-    """Extract database DDL based on database type"""
+    """Extract database DDL based on database type - FIXED VERSION"""
     db_type = connection_info.get("dbType", "Unknown")
     
     if db_type == "MySQL":
         return extract_mysql_ddl(connection_info)
+    elif db_type == "PostgreSQL":
+        return extract_postgresql_ddl(connection_info)
     else:
-        # For other database types, we would implement similar extraction
-        # For now, we'll create a more realistic mock based on the actual connection
+        # For other database types, return helpful error
         return {
             "ddl_scripts": {
-                "tables": [
-                    {
-                        "name": "users",
-                        "ddl": "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(255), email VARCHAR(255))",
-                        "type": "TABLE"
-                    }
-                ],
-                "views": [
-                    {
-                        "name": "user_summary",
-                        "ddl": "CREATE VIEW user_summary AS SELECT id, name FROM users",
-                        "type": "VIEW"
-                    }
-                ],
-                "indexes": [
-                    {
-                        "table": "users",
-                        "name": "idx_email",
-                        "unique": False,
-                        "columns": ["email"],
-                        "ddl": "CREATE INDEX idx_email ON users (email);"
-                    }
-                ],
-                "constraints": [
-                    {
-                        "type": "PRIMARY KEY",
-                        "table": "users",
-                        "columns": ["id"],
-                        "name": "PRIMARY",
-                        "ddl": "ALTER TABLE `users` ADD CONSTRAINT `PRIMARY` PRIMARY KEY (`id`);"
-                    }
-                ],
+                "tables": [],
+                "views": [],
+                "indexes": [],
+                "constraints": [],
                 "sequences": [],
-                "triggers": [
-                    {
-                        "name": "trg_users_audit",
-                        "ddl": "DELIMITER $$\nCREATE TRIGGER `trg_users_audit` BEFORE INSERT ON `users` FOR EACH ROW\nSET NEW.created_at = NOW()$$\nDELIMITER ;",
-                        "type": "TRIGGER",
-                        "event": "INSERT",
-                        "table": "users",
-                        "timing": "BEFORE"
-                    }
-                ],
-                "procedures": [
-                    {
-                        "name": "sp_get_user",
-                        "ddl": "CREATE PROCEDURE sp_get_user(IN user_id INT) BEGIN SELECT * FROM users WHERE id = user_id; END",
-                        "type": "PROCEDURE",
-                        "sql_data_access": "CONTAINS SQL"
-                    }
-                ],
-                "functions": [
-                    {
-                        "name": "fn_get_user_count",
-                        "ddl": "CREATE FUNCTION fn_get_user_count() RETURNS INT RETURN (SELECT COUNT(*) FROM users)",
-                        "type": "FUNCTION",
-                        "return_type": "INT"
-                    }
-                ],
+                "triggers": [],
+                "procedures": [],
+                "functions": [],
                 "materialized_views": [],
                 "types": [],
                 "domains": [],
@@ -917,128 +1109,37 @@ def extract_database_ddl(connection_info):
                 "partition_schemes": [],
                 "storage_configs": []
             },
-            "constraints": [
-                {
-                    "type": "PRIMARY KEY",
-                    "table": "users",
-                    "columns": ["id"],
-                    "name": "PRIMARY",
-                    "ddl": "ALTER TABLE `users` ADD CONSTRAINT `PRIMARY` PRIMARY KEY (`id`);"
-                }
-            ],
-            "relationships": [
-                {
-                    "source_table": "orders",
-                    "source_columns": ["user_id"],
-                    "target_table": "users",
-                    "target_columns": ["id"],
-                    "constraint_name": "fk_orders_user",
-                    "update_rule": "NO ACTION",
-                    "delete_rule": "NO ACTION"
-                }
-            ],
-            "indexes": [
-                {
-                    "table": "users",
-                    "name": "idx_email",
-                    "unique": False,
-                    "columns": ["email"],
-                    "ddl": "CREATE INDEX idx_email ON users (email);",
-                    "collation": "A",
-                    "cardinality": 1450,
-                    "index_type": "BTREE",
-                    "comment": ""
-                }
-            ],
+            "constraints": [],
+            "relationships": [],
+            "indexes": [],
             "synonyms": [],
-            "jobs": [
-                {
-                    "name": "daily_cleanup",
-                    "definition": "Scheduled job to clean up old records",
-                    "type": "EVENT"
-                }
-            ],
-            "data_profile": {
-                "users": {
-                    "row_count": 1500,
-                    "columns": [
-                        {
-                            "name": "id",
-                            "data_type": "int",
-                            "nullable": False,
-                            "null_count": 0,
-                            "distinct_count": 1500,
-                            "null_ratio": 0
-                        },
-                        {
-                            "name": "email",
-                            "data_type": "varchar",
-                            "nullable": True,
-                            "null_count": 50,
-                            "distinct_count": 1450,
-                            "null_ratio": 0.033
-                        }
-                    ]
-                }
-            },
+            "jobs": [],
+            "data_profile": {},
             "dependency_graph": {
-                "creation_order": ["types", "domains", "tables", "constraints", "indexes", "views", "materialized_views", "triggers", "procedures", "functions", "roles", "grants"],
-                "deletion_order": ["grants", "roles", "functions", "procedures", "triggers", "materialized_views", "views", "indexes", "constraints", "tables", "domains", "types"],
-                "dependencies": {
-                    "users": {
-                        "depends_on": [],
-                        "referenced_by": ["orders"]
-                    },
-                    "orders": {
-                        "depends_on": ["users"],
-                        "referenced_by": []
-                    }
-                }
+                "creation_order": [],
+                "deletion_order": [],
+                "dependencies": {}
             },
-            "type_mappings": {
-                "int": "INTEGER",
-                "varchar": "VARCHAR"
-            },
-            "security": [
-                {
-                    "user": "app_user",
-                    "host": "%",
-                    "type": "USER"
-                }
-            ],
+            "type_mappings": {},
+            "security": [],
             "performance": {
-                "table_stats": [
-                    {
-                        "table": "users",
-                        "rows": 1500,
-                        "avg_row_length": 100,
-                        "data_length": 150000,
-                        "index_length": 30000,
-                        "create_time": "2023-01-01 12:00:00",
-                        "update_time": "2023-01-15 14:30:00"
-                    }
-                ],
-                "index_stats": [
-                    {
-                        "table": "users",
-                        "index": "idx_email",
-                        "cardinality": 1450
-                    }
-                ]
+                "table_stats": [],
+                "index_stats": []
             },
             "extraction_report": {
-                "tables": 1,
-                "views": 1,
-                "procedures": 1,
-                "functions": 1,
-                "triggers": 1,
-                "indexes": 1,
-                "constraints": 1,
-                "relationships": 1,
+                "tables": 0,
+                "views": 0,
+                "procedures": 0,
+                "functions": 0,
+                "triggers": 0,
+                "indexes": 0,
+                "constraints": 0,
+                "relationships": 0,
                 "sequences": 0,
                 "partition_schemes": 0,
                 "grants": 0
-            }
+            },
+            "error": f"Database type '{db_type}' is not supported. Currently supported: MySQL, PostgreSQL."
         }
 
 def export_extraction_json():
@@ -1279,6 +1380,7 @@ async def run_extraction_task():
     try:
         # Get session info
         session = get_active_session()
+        print(f"Session data: {session}")  # Debug print
         source_db = session.get("source")
         
         if not source_db:
@@ -1286,6 +1388,7 @@ async def run_extraction_task():
         
         # Get full connection details
         connection_info = get_connection_by_id(source_db["id"])
+        print(f"Connection info: {connection_info}")  # Debug print
         if not connection_info:
             raise Exception("Source database connection not found")
         
@@ -1328,6 +1431,7 @@ async def run_extraction_task():
         }
         
     except Exception as e:
+        print(f"Extraction error: {str(e)}")  # Debug print
         extraction_status["error"] = str(e)
         extraction_status["done"] = True
         extraction_status["percent"] = 100

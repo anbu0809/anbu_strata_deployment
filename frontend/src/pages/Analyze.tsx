@@ -1,14 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Connection, Session, AnalysisStatus } from '../types';
-import { Play, CheckCircle, AlertCircle, Trash2, Download, FileText, FileSpreadsheet, File, Eye, ChevronDown, ChevronRight } from 'lucide-react';
+import { Play, CheckCircle, AlertCircle, FileText, FileSpreadsheet, File, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 
 interface AnalyzeProps {
   connections: Connection[];
-  onDeleteConnection: (id: number) => void;
-  onEditConnection: (id: number) => void;
 }
 
-const Analyze = ({ connections, onDeleteConnection }: AnalyzeProps) => {
+const Analyze = ({ connections }: AnalyzeProps) => {
   const [session, setSession] = useState<Session>({ source: null, target: null });
   const [sourceId, setSourceId] = useState<number | ''>('');
   const [targetId, setTargetId] = useState<number | ''>('');
@@ -25,6 +23,7 @@ const Analyze = ({ connections, onDeleteConnection }: AnalyzeProps) => {
     indexes: false
   });
   const [pollingInterval, setPollingInterval] = useState<any>(null);
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
   // Fetch current session on component mount
   useEffect(() => {
@@ -36,10 +35,6 @@ const Analyze = ({ connections, onDeleteConnection }: AnalyzeProps) => {
       }
     };
   }, []);
-
-  const checkInitialAnalysisStatus = async () => {
-    // Do nothing - no automatic checking
-  };
 
   const startPolling = () => {
     if (!pollingInterval) {
@@ -94,10 +89,47 @@ const Analyze = ({ connections, onDeleteConnection }: AnalyzeProps) => {
       if (response.ok) {
         const data = await response.json();
         setAnalysisData(data);
+        setLastRefresh(new Date());
       }
     } catch (error) {
       console.error('Failed to fetch analysis data:', error);
     }
+  };
+
+  const handleRefreshAnalysis = async () => {
+    if (sourceId && targetId) {
+      try {
+        // Clear existing analysis data first
+        setAnalysisData(null);
+        
+        // Start a fresh analysis
+        setIsAnalyzing(true);
+        setAnalysisStatus(null);
+        setCanProceed(false);
+        
+        const response = await fetch('/api/analyze/start', {
+          method: 'POST',
+        });
+        
+        if (response.ok) {
+          startPolling();
+        }
+      } catch (error) {
+        console.error('Failed to refresh analysis:', error);
+        setIsAnalyzing(false);
+      }
+    } else {
+      // Just refresh the data without starting analysis
+      await fetchAnalysisData();
+    }
+  };
+
+  const formatLastRefresh = (date: Date) => {
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
   };
 
   const handleSourceChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -151,17 +183,6 @@ const Analyze = ({ connections, onDeleteConnection }: AnalyzeProps) => {
         setIsAnalyzing(false);
       }
     }
-  };
-
-  const handleDeleteConnection = (id: number) => {
-    if (window.confirm('Are you sure you want to delete this connection?')) {
-      onDeleteConnection(id);
-    }
-  };
-
-  const handleEditConnection = (id: number) => {
-    // This should call the parent component's edit function
-    // We'll implement this properly
   };
 
   const handleExport = async (format: 'pdf' | 'json' | 'xlsx') => {
@@ -346,7 +367,16 @@ const Analyze = ({ connections, onDeleteConnection }: AnalyzeProps) => {
     <div className="max-w-6xl mx-auto">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Analyze</h1>
-        <p className="text-gray-600">Select source and target databases for analysis</p>
+        <div className="flex items-center justify-between">
+          <p className="text-gray-600">Select source and target databases for analysis</p>
+          <button
+            onClick={handleRefreshAnalysis}
+            className="flex items-center px-3 py-1 text-sm text-gray-600 hover:text-[#ec6225] border border-gray-300 rounded-md hover:border-[#ec6225]"
+          >
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Refresh Data
+          </button>
+        </div>
       </div>
       
       <div className="bg-white rounded-lg shadow-md p-6 mb-8">
@@ -408,9 +438,24 @@ const Analyze = ({ connections, onDeleteConnection }: AnalyzeProps) => {
         )}
       </div>
       
-      {(isAnalyzing || (analysisStatus && (analysisStatus.percent > 0 || analysisStatus.done))) ? (
+      {(isAnalyzing || (analysisStatus && (analysisStatus.percent !== null && analysisStatus.percent > 0 || analysisStatus.done))) ? (
         <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Analysis Progress</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-gray-900">Analysis Progress</h2>
+            <div className="flex items-center space-x-4">
+              <span className="text-sm text-gray-500">
+                Last updated: {formatLastRefresh(lastRefresh)}
+              </span>
+              <button
+                onClick={handleRefreshAnalysis}
+                disabled={isAnalyzing}
+                className="flex items-center px-3 py-1 text-sm text-gray-600 hover:text-[#ec6225] border border-gray-300 rounded-md hover:border-[#ec6225] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <RefreshCw className={`h-4 w-4 mr-1 ${isAnalyzing ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+            </div>
+          </div>
           
           {analysisStatus && (
             <div className="space-y-4">
@@ -452,21 +497,21 @@ const Analyze = ({ connections, onDeleteConnection }: AnalyzeProps) => {
                         <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() => handleExport('pdf')}
-                            className="flex items-center px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                            className="flex items-center px-3 py-2 text-gray-700 hover:text-[#ec6225] border border-gray-300 rounded-md hover:border-[#ec6225]"
                           >
                             <File className="h-4 w-4 mr-2" />
                             Download PDF
                           </button>
                           <button
                             onClick={() => handleExport('xlsx')}
-                            className="flex items-center px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                            className="flex items-center px-3 py-2 text-gray-700 hover:text-[#ec6225] border border-gray-300 rounded-md hover:border-[#ec6225]"
                           >
                             <FileSpreadsheet className="h-4 w-4 mr-2" />
                             Download Excel
                           </button>
                           <button
                             onClick={() => handleExport('json')}
-                            className="flex items-center px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                            className="flex items-center px-3 py-2 text-gray-700 hover:text-[#ec6225] border border-gray-300 rounded-md hover:border-[#ec6225]"
                           >
                             <FileText className="h-4 w-4 mr-2" />
                             Download JSON
@@ -495,18 +540,30 @@ const Analyze = ({ connections, onDeleteConnection }: AnalyzeProps) => {
         <div className="bg-white rounded-lg shadow-md p-12 text-center">
           <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No Analysis Started</h3>
-          <p className="text-gray-500">
+          <p className="text-gray-500 mb-4">
             Select source and target databases, then click "Start Analysis" to begin.
           </p>
+          <div className="flex justify-center items-center space-x-4">
+            <button
+              onClick={handleRefreshAnalysis}
+              className="flex items-center px-4 py-2 text-gray-600 hover:text-[#ec6225] border border-gray-300 rounded-md hover:border-[#ec6225]"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Check for Analysis Data
+            </button>
+            <span className="text-sm text-gray-500">
+              Last checked: {formatLastRefresh(lastRefresh)}
+            </span>
+          </div>
         </div>
       )}
       
       {/* Start Analysis and Proceed to Extraction buttons at the end of the page */}
       <div className="mt-6 flex justify-center space-x-4">
-        {!isAnalyzing && !analysisStatus?.done && session.source && session.target && (
+        {!isAnalyzing && !analysisStatus?.done && sourceId && targetId && (
           <button
             onClick={handleStartAnalysis}
-            className="px-6 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 flex items-center text-lg"
+            className="px-6 py-3 bg-[#ec6225] text-white rounded-md hover:bg-[#d4551e] flex items-center text-lg"
           >
             <Play className="h-5 w-5 mr-2" />
             Start Analysis
@@ -515,12 +572,18 @@ const Analyze = ({ connections, onDeleteConnection }: AnalyzeProps) => {
         {canProceed && (
           <button
             onClick={() => window.location.href = '/extract'}
-            className="px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center text-lg"
+            className="px-6 py-3 bg-[#085690] text-white rounded-md hover:bg-[#064a7a] flex items-center text-lg"
           >
             <CheckCircle className="h-5 w-5 mr-2" />
             Proceed to Extraction
           </button>
         )}
+      </div>
+
+      {/* Footer */}
+      <div className="mt-12 text-center">
+        <p className="text-lg font-bold text-gray-900 mb-2">DecisionMinds</p>
+        <p className="text-sm text-gray-600">Powered by DecisionMinds</p>
       </div>
     </div>
   );

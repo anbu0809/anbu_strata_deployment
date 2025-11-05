@@ -16,53 +16,135 @@ def sort_tables_by_dependencies(tables):
     # Create a mapping of table names to their DDL
     table_map = {}
     table_deps = {}
-    
+
     # Extract table names and dependencies
     for table in tables:
         if isinstance(table, dict) and "name" in table and "ddl" in table:
             table_name = table["name"]
             table_map[table_name] = table
-            
+
             # Extract dependencies from DDL (foreign key references)
             ddl = table["ddl"].lower()
             deps = []
-            
+
             # Look for foreign key references
             import re
             fk_matches = re.findall(r'foreign key.*?references\s+(\w+)', ddl)
             deps.extend(fk_matches)
-            
+
             table_deps[table_name] = deps
-    
+
     # Topological sort to order tables by dependencies
     sorted_tables = []
     visited = set()
     temp_visited = set()
-    
+
     def visit(table_name):
         if table_name in temp_visited:
             # Circular dependency, skip
             return
         if table_name in visited:
             return
-            
+
         temp_visited.add(table_name)
-        
+
         # Visit dependencies first
         for dep in table_deps.get(table_name, []):
             if dep in table_map:  # Only if dependency is in our table list
                 visit(dep)
-        
+
         temp_visited.remove(table_name)
         visited.add(table_name)
         sorted_tables.append(table_map[table_name])
-    
+
     # Visit all tables
     for table_name in table_map:
         if table_name not in visited:
             visit(table_name)
-    
+
     return sorted_tables
+
+def sort_ddl_statements_by_dependencies(ddl_statements):
+    """Sort DDL statements by dependency order"""
+    print(f"Sorting {len(ddl_statements)} DDL statements by dependencies")
+
+    # Parse DDL statements to extract table names and dependencies
+    table_statements = []
+    other_statements = []
+
+    for statement in ddl_statements:
+        statement_upper = statement.upper()
+        print(f"Processing statement: {statement[:60]}...")
+        if statement_upper.startswith('CREATE TABLE'):
+            # Extract table name
+            import re
+            match = re.search(r'CREATE TABLE\s+(\w+)', statement_upper, re.IGNORECASE)
+            if match:
+                table_name = match.group(1).lower()
+                print(f"Found table: {table_name}")
+                # Extract foreign key references
+                deps = []
+                fk_matches = re.findall(r'REFERENCES\s+(\w+)', statement_upper, re.IGNORECASE)
+                deps.extend([dep.lower() for dep in fk_matches])
+                print(f"Dependencies for {table_name}: {deps}")
+
+                table_statements.append({
+                    'name': table_name,
+                    'ddl': statement,
+                    'deps': deps
+                })
+            else:
+                print(f"Could not extract table name from: {statement[:60]}...")
+                other_statements.append(statement)
+        else:
+            print(f"Non-table statement: {statement[:60]}...")
+            other_statements.append(statement)
+
+    print(f"Found {len(table_statements)} table statements and {len(other_statements)} other statements")
+
+    # Topological sort for table statements
+    sorted_table_statements = []
+    visited = set()
+    temp_visited = set()
+
+    def visit_table(table_info):
+        table_name = table_info['name']
+        print(f"Visiting table: {table_name}")
+        if table_name in temp_visited:
+            print(f"Circular dependency detected for {table_name}")
+            return
+        if table_name in visited:
+            print(f"Already visited {table_name}")
+            return
+
+        temp_visited.add(table_name)
+        print(f"Processing dependencies for {table_name}: {table_info['deps']}")
+
+        # Visit dependencies first
+        for dep in table_info['deps']:
+            print(f"Looking for dependency {dep}")
+            for other_table in table_statements:
+                if other_table['name'] == dep:
+                    print(f"Found dependency {dep}, visiting it first")
+                    visit_table(other_table)
+
+        temp_visited.remove(table_name)
+        visited.add(table_name)
+        print(f"Adding {table_name} to sorted list")
+        sorted_table_statements.append(table_info['ddl'])
+
+    # Visit all tables
+    for table_info in table_statements:
+        if table_info['name'] not in visited:
+            print(f"Starting visit for {table_info['name']}")
+            visit_table(table_info)
+
+    print(f"Sorted {len(sorted_table_statements)} table statements")
+    for i, stmt in enumerate(sorted_table_statements):
+        print(f"Sorted {i+1}: {stmt[:60]}...")
+
+    # Return sorted table statements first, then other statements
+    return sorted_table_statements + other_statements
 
 
 structure_migration_status = {
@@ -104,7 +186,7 @@ def get_db_connector(db_type: str):
         return None
 
 def connect_to_database(connection_info):
-    """Connect to a database based on connection info"""
+    """Connect to a database based on connection info with Windows compatibility fixes"""
     db_type = connection_info.get("dbType")
     credentials = connection_info.get("credentials", {})
     
@@ -118,27 +200,32 @@ def connect_to_database(connection_info):
             database = credentials.get('database')
             username = credentials.get('username')
             password = credentials.get('password')
-            ssl_mode = credentials.get('ssl', 'true')
+            ssl_mode = credentials.get('ssl', 'false')  # Default to false for Windows compatibility
             
-            # Configure SSL settings
-            ssl_config = {}
-            if ssl_mode == 'false':
-                ssl_config['ssl_disabled'] = True
-            else:
-                # For Azure MySQL, we need to handle SSL properly
-                ssl_config['ssl_disabled'] = False
-                ssl_config['ssl_verify_cert'] = False
-                ssl_config['ssl_verify_identity'] = False
-            
-            # Create connection with SSL configuration
+            # Create connection parameters with minimal configuration for Windows
             connection_params = {
                 'host': host,
                 'port': port,
                 'database': database,
                 'user': username,
                 'password': password,
-                **ssl_config
+                'autocommit': True,
+                'allow_local_infile': True,  # Important for Windows
+                'charset': 'utf8mb4',
+                'use_unicode': True
             }
+            
+            # Only add SSL settings if explicitly needed and supported
+            if ssl_mode == 'true':
+                try:
+                    # Only add SSL if all required parameters are present
+                    connection_params.update({
+                        'ssl_disabled': False,
+                        'ssl_verify_cert': False
+                    })
+                except Exception:
+                    # Fallback to no SSL if there are any issues
+                    connection_params['ssl_disabled'] = True
             
             return mysql.connector.connect(**connection_params)
         
@@ -152,10 +239,17 @@ def connect_to_database(connection_info):
             username = credentials.get('username')
             password = credentials.get('password')
             
-            # Create connection string
-            connection_string = f"host={host} port={port} dbname={database} user={username} password={password}"
+            # Create connection parameters dict for better compatibility
+            connection_params = {
+                'host': host,
+                'port': port,
+                'dbname': database,
+                'user': username,
+                'password': password,
+                'application_name': 'Strata Migration Tool'
+            }
             
-            return psycopg2.connect(connection_string)
+            return psycopg2.connect(**connection_params)
         
         # For other database types, we would implement similar connection logic
         # For now, we'll raise an exception for unsupported database types
@@ -167,17 +261,93 @@ def connect_to_database(connection_info):
     except Exception as e:
         raise Exception(f"Failed to connect to {db_type} database: {str(e)}")
 
+def reassemble_ai_ddl_statements(ddl_list):
+    """Reassemble AI-generated DDL statements from list format into complete SQL statements"""
+    statements = []
+    
+    if not isinstance(ddl_list, list):
+        print(f"Expected list, got {type(ddl_list)}")
+        return statements
+    
+    print(f"Reassembling {len(ddl_list)} DDL items")
+    
+    current_statement = ""
+    in_create_table = False
+    paren_depth = 0
+    
+    for i, item in enumerate(ddl_list):
+        if isinstance(item, str):
+            line = item.strip()
+            
+            # Skip empty lines and standalone semicolons
+            if not line or line == ';':
+                if current_statement.strip():
+                    # End of current statement
+                    final_statement = current_statement.strip()
+                    if final_statement:
+                        statements.append(final_statement)
+                        print(f"Completed statement {len(statements)}: {final_statement[:60]}...")
+                    current_statement = ""
+                    in_create_table = False
+                    paren_depth = 0
+                continue
+            
+            # Check if this starts a CREATE TABLE
+            if line.upper().startswith('CREATE TABLE'):
+                in_create_table = True
+                paren_depth = line.count('(') - line.count(')')
+                current_statement = line
+                print(f"Started CREATE TABLE at item {i}: {line[:50]}...")
+            elif in_create_table:
+                # Continue building CREATE TABLE
+                current_statement += " " + line
+                paren_depth += line.count('(') - line.count(')')
+                print(f"Building CREATE TABLE, depth={paren_depth}: {line[:50]}...")
+                
+                # Check if we've closed all parentheses
+                if paren_depth <= 0:
+                    in_create_table = False
+                    # The semicolon should be on this line or the next
+                    if not current_statement.endswith(';'):
+                        # Look ahead for semicolon
+                        continue
+            else:
+                # Not in CREATE TABLE, just add the line
+                if current_statement.strip():
+                    # Complete previous statement first
+                    final_statement = current_statement.strip()
+                    if final_statement:
+                        statements.append(final_statement)
+                        print(f"Completed standalone statement {len(statements)}: {final_statement[:60]}...")
+                    current_statement = ""
+                current_statement = line
+                print(f"Added standalone line: {line[:50]}...")
+        else:
+            print(f"Skipping non-string item {i}: {type(item)}")
+    
+    # Handle any remaining statement
+    if current_statement.strip():
+        final_statement = current_statement.strip()
+        if final_statement:
+            statements.append(final_statement)
+            print(f"Added final statement: {final_statement[:60]}...")
+    
+    print(f"Reassembled {len(statements)} complete statements")
+    for i, stmt in enumerate(statements):
+        print(f"Statement {i}: {stmt[:80]}...")
+    
+    return statements
+
 def extract_ddl_statements(ddl_data):
     """Extract DDL statements from structured data in dependency order"""
     statements = []
     
     # Debug: Log the input data
     print(f"extract_ddl_statements input type: {type(ddl_data)}")
-    print(f"extract_ddl_statements input: {ddl_data}")
     
     # Handle different structures
     if isinstance(ddl_data, dict):
-        # Extract tables first (dependency order)
+        # Handle structured format
         if "tables" in ddl_data and isinstance(ddl_data["tables"], list):
             print(f"Found {len(ddl_data['tables'])} tables")
             
@@ -201,48 +371,39 @@ def extract_ddl_statements(ddl_data):
                     else:
                         print(f"Skipped empty table {i} statement")
         
-        # Then indexes
-        if "indexes" in ddl_data and isinstance(ddl_data["indexes"], list):
-            print(f"Found {len(ddl_data['indexes'])} indexes")
-            for i, index in enumerate(ddl_data["indexes"]):
-                if isinstance(index, dict) and "ddl" in index:
-                    ddl = index["ddl"].strip()
-                    print(f"Index {i} raw DDL: '{ddl}'")
-                    # Remove trailing semicolon if present
-                    if ddl.endswith(';'):
-                        ddl = ddl[:-1].strip()
-                    # Remove any remaining newlines at the end
-                    ddl = ddl.rstrip()
-                    print(f"Index {i} cleaned DDL: '{ddl}'")
-                    if ddl:
-                        statements.append(ddl)
-                        print(f"Added index {i} statement")
-                    else:
-                        print(f"Skipped empty index {i} statement")
-        
-        # Then other DDL types in order
-        for key in ["constraints", "views", "triggers", "procedures", "functions"]:
+        # Handle indexes, constraints, etc.
+        for key in ["indexes", "constraints", "views", "triggers", "procedures", "functions"]:
             if key in ddl_data and isinstance(ddl_data[key], list):
                 print(f"Found {len(ddl_data[key])} {key}")
                 for i, item in enumerate(ddl_data[key]):
                     if isinstance(item, dict) and "ddl" in item:
                         ddl = item["ddl"].strip()
-                        print(f"{key} {i} raw DDL: '{ddl}'")
-                        # Remove trailing semicolon if present
                         if ddl.endswith(';'):
                             ddl = ddl[:-1].strip()
-                        # Remove any remaining newlines at the end
                         ddl = ddl.rstrip()
-                        print(f"{key} {i} cleaned DDL: '{ddl}'")
                         if ddl:
                             statements.append(ddl)
                             print(f"Added {key} {i} statement")
-                        else:
-                            print(f"Skipped empty {key} {i} statement")
+    
+    elif isinstance(ddl_data, list):
+        # Handle list of DDL strings - use improved reassembly logic
+        print(f"Processing list of {len(ddl_data)} items with improved reassembly")
+        statements = reassemble_ai_ddl_statements(ddl_data)
+    
+    elif isinstance(ddl_data, str):
+        # Handle single string
+        print("Processing single string")
+        # Split by semicolons and clean
+        parts = ddl_data.split(';')
+        for part in parts:
+            cleaned = part.strip()
+            if cleaned:
+                statements.append(cleaned)
+                print(f"Added string part: {cleaned[:60]}...")
     
     print(f"Total extracted statements: {len(statements)}")
     for i, stmt in enumerate(statements):
-        print(f"Statement {i}: {stmt[:50]}...")
+        print(f"Statement {i}: {stmt[:80]}...")
     
     return statements
 
@@ -254,137 +415,104 @@ def apply_ddl_to_target(target_connection, ddl_data):
     cursor = target_connection.cursor()
     
     try:
-        # Extract DDL statements
+        # Extract DDL statements from various formats
         ddl_statements = []
         
-        # Debug: Log the raw DDL data
-        print(f"Raw DDL data type: {type(ddl_data)}")
-        print(f"Raw DDL data: {ddl_data}")
+        print(f"Processing DDL data type: {type(ddl_data)}")
         
-        # Handle different types of DDL data
-        if isinstance(ddl_data, str):
-            try:
-                # Try to parse as JSON first
-                parsed_data = json.loads(ddl_data)
-                print(f"Parsed JSON data: {parsed_data}")
-                # If it's a dict with translated_ddl key, use that
-                if isinstance(parsed_data, dict) and "translated_ddl" in parsed_data:
-                    ddl_content = parsed_data["translated_ddl"]
-                    print(f"Using translated_ddl content: {ddl_content}")
-                    ddl_statements = extract_ddl_statements(ddl_content)
-                else:
-                    # Handle direct JSON structure
-                    print(f"Using direct JSON structure")
-                    ddl_statements = extract_ddl_statements(parsed_data)
-            except json.JSONDecodeError as je:
-                print(f"JSON decode error: {je}")
-                # If not JSON, treat as raw SQL
-                statements = ddl_data.split(';')
-                for statement in statements:
-                    statement = statement.strip()
-                    if statement:
-                        ddl_statements.append(statement)
-        elif isinstance(ddl_data, dict):
-            # Handle direct dict structure
-            print(f"Direct dict structure")
-            # Check if it has translated_ddl key
+        # Handle different input formats
+        if isinstance(ddl_data, dict):
             if "translated_ddl" in ddl_data:
-                print(f"Using translated_ddl from dict")
-                ddl_statements = extract_ddl_statements(ddl_data["translated_ddl"])
+                # Extract from translated_ddl key
+                ddl_content = ddl_data["translated_ddl"]
+                print(f"Extracting from translated_ddl: {type(ddl_content)}")
+                ddl_statements = extract_ddl_statements(ddl_content)
             else:
-                print(f"Using direct dict structure")
+                # Direct structure
+                print("Using direct dict structure")
                 ddl_statements = extract_ddl_statements(ddl_data)
+        elif isinstance(ddl_data, str):
+            # Try to parse as JSON first
+            try:
+                parsed_data = json.loads(ddl_data)
+                print(f"Parsed JSON string successfully")
+                ddl_statements = extract_ddl_statements(parsed_data)
+            except json.JSONDecodeError:
+                # Treat as raw SQL
+                print("Treating as raw SQL")
+                statements = [s.strip() for s in ddl_data.split(';') if s.strip()]
+                ddl_statements = statements
+        elif isinstance(ddl_data, list):
+            # Direct list handling for AI output
+            print(f"Processing direct list with {len(ddl_data)} items")
+            ddl_statements = reassemble_ai_ddl_statements(ddl_data)
         else:
             raise Exception(f"Unsupported DDL data type: {type(ddl_data)}")
         
-        # Debug: Log extracted statements
-        print(f"Extracted {len(ddl_statements)} DDL statements")
-        for i, stmt in enumerate(ddl_statements):
-            print(f"Statement {i+1}: {repr(stmt[:100])}...")
+        print(f"Extracted {len(ddl_statements)} statements for execution")
         
-        # Validate that we have statements to execute
+        # Validate we have statements
         if not ddl_statements:
             raise Exception("No DDL statements found to execute")
         
-        # Execute each DDL statement
+        # Execute statements with better error handling
         executed_count = 0
         for i, statement in enumerate(ddl_statements):
-            statement = statement.strip()
-            print(f"Before cleaning statement {i+1}: {repr(statement)}")
-            # Remove trailing semicolon if present
-            if statement.endswith(';'):
-                statement = statement[:-1].strip()
+            if not statement or statement.isspace():
+                print(f"Skipping empty statement {i+1}")
+                continue
+                
+            # Clean the statement
+            cleaned_statement = statement.strip().rstrip(';')
+            print(f"Executing statement {i+1}: {cleaned_statement[:100]}...")
             
-            # Additional cleaning
-            statement = statement.rstrip()
-            print(f"After cleaning statement {i+1}: {repr(statement)}")
-            
-            if statement:  # Only execute non-empty statements
-                # Additional validation to ensure statement is not just whitespace
-                if statement.strip() and not statement.isspace():
-                    print(f"Executing statement {i+1}/{len(ddl_statements)}: {statement[:100]}...")  # Debug print
+            try:
+                cursor.execute(cleaned_statement)
+                executed_count += 1
+                print(f"Successfully executed statement {i+1}")
+            except Exception as stmt_error:
+                error_msg = str(stmt_error).lower()
+                print(f"Error in statement {i+1}: {error_msg}")
+                
+                # Handle "already exists" errors gracefully
+                if "already exists" in error_msg or "duplicate" in error_msg:
                     try:
-                        cursor.execute(statement)
-                        executed_count += 1
-                    except Exception as e:
-                        # Handle "already exists" errors by dropping and recreating
-                        error_msg = str(e).lower()
-                        print(f"DDL execution error: {error_msg}")
-                        if "already exists" in error_msg or "duplicate" in error_msg:
-                            # Extract table name from CREATE TABLE statement
-                            import re
-                            print(f"Processing statement: {statement}")
-                            # More flexible pattern to match table names
-                            table_match = re.search(r'create\s+table(?:\s+if\s+not\s+exists)?\s+(\w+)', statement, re.IGNORECASE)
-                            if not table_match:
-                                # Try alternative pattern
-                                table_match = re.search(r'create\s+table(?:\s+if\s+not\s+exists)?\s+["`]?(\w+)["`]?', statement, re.IGNORECASE)
-                            
-                            if table_match:
-                                table_name = table_match.group(1)
-                                print(f"Table {table_name} already exists, dropping and recreating...")
-                                try:
-                                    # For PostgreSQL, use CASCADE to drop dependent objects
-                                    cursor.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE")
-                                    cursor.execute(statement)
-                                    executed_count += 1
-                                    print(f"Successfully recreated table {table_name}")
-                                except Exception as drop_e:
-                                    print(f"Failed to drop and recreate table {table_name}: {drop_e}")
-                                    raise e  # Re-raise original error
-                            else:
-                                print(f"Could not extract table name from statement: {statement[:100]}...")
-                                # As a fallback, try to drop all tables and recreate
-                                try:
-                                    print("Attempting to drop all tables as fallback...")
-                                    # Drop tables in reverse order to handle dependencies
-                                    cursor.execute("DROP TABLE IF EXISTS order_items CASCADE")
-                                    cursor.execute("DROP TABLE IF EXISTS orders CASCADE")
-                                    cursor.execute("DROP TABLE IF EXISTS products CASCADE")
-                                    cursor.execute("DROP TABLE IF EXISTS employees CASCADE")
-                                    cursor.execute("DROP TABLE IF EXISTS customers CASCADE")
-                                    # Retry the statement
-                                    cursor.execute(statement)
-                                    executed_count += 1
-                                    print("Successfully recreated table after dropping all tables")
-                                except Exception as fallback_e:
-                                    print(f"Fallback also failed: {fallback_e}")
-                                    raise e  # Re-raise original error
+                        # Extract table name for DROP TABLE
+                        import re
+                        table_match = re.search(r'create\s+table(?:\s+if\s+not\s+exists)?\s+["\']?(\w+)["\']?', cleaned_statement, re.IGNORECASE)
+                        if table_match:
+                            table_name = table_match.group(1)
+                            print(f"Dropping existing table {table_name}")
+                            cursor.execute(f'DROP TABLE IF EXISTS "{table_name}" CASCADE')
+                            cursor.execute(cleaned_statement)
+                            executed_count += 1
+                            print(f"Successfully recreated table {table_name}")
                         else:
-                            raise e  # Re-raise original error
+                            # Skip problematic statement
+                            print(f"Skipping problematic statement: {cleaned_statement[:100]}...")
+                    except Exception as drop_error:
+                        print(f"Drop operation failed: {drop_error}")
+                        raise stmt_error  # Re-raise original error
                 else:
-                    print(f"Skipping whitespace-only statement {i+1}/{len(ddl_statements)}")
-            else:
-                print(f"Skipping empty statement {i+1}/{len(ddl_statements)}")
+                    # For other errors, re-raise
+                    raise stmt_error
         
         target_connection.commit()
-        print(f"Successfully executed {executed_count} DDL statements")
+        print(f"Successfully executed {executed_count} out of {len(ddl_statements)} DDL statements")
         return True
+        
     except Exception as e:
-        target_connection.rollback()
+        print(f"DDL application error: {str(e)}")
+        try:
+            target_connection.rollback()
+        except:
+            pass
         raise Exception(f"Failed to apply DDL to target database: {str(e)}")
     finally:
-        cursor.close()
+        try:
+            cursor.close()
+        except:
+            pass
 
 async def run_structure_migration_task():
     """Background task to run structure migration"""
@@ -496,6 +624,13 @@ async def run_structure_migration_task():
         structure_migration_status["phase"] = "Connecting to target database"
         structure_migration_status["percent"] = 70
         
+        # Check if connection info exists
+        if not target_connection_info:
+            raise Exception("No target database configured. Please set up a target database connection through the UI.")
+        
+        if not target_connection_info.get("credentials"):
+            raise Exception("Target database credentials missing. Please configure the target database connection.")
+        
         try:
             target_connection = connect_to_database(target_connection_info)
         except Exception as e:
@@ -508,11 +643,11 @@ async def run_structure_migration_task():
         try:
             cursor = target_connection.cursor()
             # Drop tables in reverse order to handle dependencies
-            cursor.execute("DROP TABLE IF EXISTS order_items CASCADE")
-            cursor.execute("DROP TABLE IF EXISTS orders CASCADE")
-            cursor.execute("DROP TABLE IF EXISTS products CASCADE")
-            cursor.execute("DROP TABLE IF EXISTS employees CASCADE")
-            cursor.execute("DROP TABLE IF EXISTS customers CASCADE")
+            cursor.execute('DROP TABLE IF EXISTS order_items CASCADE')
+            cursor.execute('DROP TABLE IF EXISTS orders CASCADE')
+            cursor.execute('DROP TABLE IF EXISTS products CASCADE')
+            cursor.execute('DROP TABLE IF EXISTS employees CASCADE')
+            cursor.execute('DROP TABLE IF EXISTS customers CASCADE')
             target_connection.commit()
             cursor.close()
             print("Successfully dropped existing tables")
@@ -629,46 +764,46 @@ async def run_data_migration_task():
         tables_to_drop = ["order_items", "orders", "products", "employees", "customers"]
         for table in tables_to_drop:
             try:
-                target_cursor.execute(f"DROP TABLE IF EXISTS \"{table}\" CASCADE")
+                target_cursor.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
             except Exception as e:
                 pass  # Continue even if table doesn't exist
         target_connection.commit()
         
         # Create tables with proper schema for PostgreSQL
         create_table_statements = [
-            """CREATE TABLE "customers" (
+            '''CREATE TABLE "customers" (
                 "id" SERIAL PRIMARY KEY,
                 "name" VARCHAR(120) NOT NULL,
                 "email" VARCHAR(255) NOT NULL,
                 "city" VARCHAR(120) NOT NULL,
                 "created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE ("email")
-            )""",
-            """CREATE TABLE "employees" (
+            )''',
+            '''CREATE TABLE "employees" (
                 "id" SERIAL PRIMARY KEY,
                 "first_name" VARCHAR(80) NOT NULL,
                 "last_name" VARCHAR(80) NOT NULL,
                 "title" VARCHAR(120) NOT NULL,
                 "hired_on" DATE NOT NULL,
                 "salary" DECIMAL(12,2) NOT NULL
-            )""",
-            """CREATE TABLE "products" (
+            )''',
+            '''CREATE TABLE "products" (
                 "id" SERIAL PRIMARY KEY,
                 "sku" VARCHAR(64) NOT NULL,
                 "name" VARCHAR(160) NOT NULL,
                 "price" DECIMAL(10,2) NOT NULL,
                 "in_stock" SMALLINT NOT NULL DEFAULT 1,
                 UNIQUE ("sku")
-            )""",
-            """CREATE TABLE "orders" (
+            )''',
+            '''CREATE TABLE "orders" (
                 "id" SERIAL PRIMARY KEY,
                 "customer_id" INTEGER NOT NULL,
                 "order_date" TIMESTAMP NOT NULL,
                 "status" VARCHAR(20) NOT NULL DEFAULT 'PENDING',
                 "total" DECIMAL(12,2) NOT NULL,
                 FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE RESTRICT ON UPDATE RESTRICT
-            )""",
-            """CREATE TABLE "order_items" (
+            )''',
+            '''CREATE TABLE "order_items" (
                 "id" SERIAL PRIMARY KEY,
                 "order_id" INTEGER NOT NULL,
                 "product_id" INTEGER NOT NULL,
@@ -677,7 +812,7 @@ async def run_data_migration_task():
                 "line_total" DECIMAL(12,2) NOT NULL,
                 FOREIGN KEY ("order_id") REFERENCES "orders"("id") ON DELETE RESTRICT ON UPDATE RESTRICT,
                 FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE RESTRICT
-            )"""
+            )'''
         ]
         
         # Execute table creation statements
@@ -709,10 +844,10 @@ async def run_data_migration_task():
                 # Get column names
                 column_names = [desc[0] for desc in source_cursor.description]
                 placeholders = ", ".join(["%s"] * len(column_names))
-                columns = ", ".join([f"\"{name}\"" for name in column_names])
+                columns = ", ".join([f'"{name}"' for name in column_names])
                 
                 # Insert data into target table
-                insert_query = f"INSERT INTO \"{table}\" ({columns}) VALUES ({placeholders})"
+                insert_query = f'INSERT INTO "{table}" ({columns}) VALUES ({placeholders})'
                 target_cursor.executemany(insert_query, rows)
                 target_connection.commit()
             

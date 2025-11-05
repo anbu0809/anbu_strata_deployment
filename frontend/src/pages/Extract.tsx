@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Play, CheckCircle, AlertCircle, Database, Table, FileText, FileSpreadsheet, File, Eye, ChevronDown, ChevronRight } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Play, CheckCircle, AlertCircle, Database, FileText, FileSpreadsheet, File, ChevronDown, ChevronRight } from 'lucide-react';
 
 const Extract = () => {
   const [session, setSession] = useState<any>(null);
@@ -17,11 +17,17 @@ const Extract = () => {
     constraints: false
   });
 
-  // Fetch current session and extraction status on component mount
+  // Fetch current session on component mount and cleanup on unmount
   useEffect(() => {
     fetchSession();
-    const interval = setInterval(fetchExtractionStatus, 2000);
-    return () => clearInterval(interval);
+    
+    return () => {
+      // Cleanup polling interval on component unmount
+      if ((window as any).extractionPollInterval) {
+        clearInterval((window as any).extractionPollInterval);
+        (window as any).extractionPollInterval = null;
+      }
+    };
   }, []);
 
   const fetchSession = async () => {
@@ -45,12 +51,23 @@ const Extract = () => {
         if (data.done) {
           setIsExtracting(false);
           setCanProceed(true);
+          // Stop polling when extraction is complete
+          if ((window as any).extractionPollInterval) {
+            clearInterval((window as any).extractionPollInterval);
+            (window as any).extractionPollInterval = null;
+          }
           // Fetch extraction data for display
           fetchExtractionData();
         }
       }
     } catch (error) {
       console.error('Failed to fetch extraction status:', error);
+      // Stop polling on error
+      if ((window as any).extractionPollInterval) {
+        clearInterval((window as any).extractionPollInterval);
+        (window as any).extractionPollInterval = null;
+      }
+      setIsExtracting(false);
     }
   };
 
@@ -78,8 +95,10 @@ const Extract = () => {
       });
       
       if (response.ok) {
-        // Start polling for status
-        fetchExtractionStatus();
+        // Start polling for status only after button click
+        const interval = setInterval(fetchExtractionStatus, 2000);
+        // Store interval ID for cleanup
+        (window as any).extractionPollInterval = interval;
       }
     } catch (error) {
       console.error('Failed to start extraction:', error);
@@ -222,6 +241,12 @@ const Extract = () => {
             </div>
           </div>
         )}
+  
+        {/* Footer */}
+        <div className="mt-12 text-center">
+          <p className="text-lg font-bold text-gray-900 mb-2">DecisionMinds</p>
+          <p className="text-sm text-gray-600">Powered by DecisionMinds</p>
+        </div>
       </div>
     );
   };
@@ -319,7 +344,7 @@ const Extract = () => {
           {!isExtracting && !extractionStatus?.done && (
             <button
               onClick={handleStartExtraction}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 flex items-center"
+              className="px-4 py-2 bg-[#ec6225] text-white rounded-md hover:bg-[#d4551e] flex items-center"
             >
               <Play className="h-4 w-4 mr-2" />
               Run Extraction
@@ -329,7 +354,7 @@ const Extract = () => {
           {canProceed && (
             <button
               onClick={() => window.location.href = '/migrate'}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center mt-4"
+              className="px-4 py-2 bg-[#085690] text-white rounded-md hover:bg-[#064a7a] flex items-center mt-4"
             >
               <CheckCircle className="h-4 w-4 mr-2" />
               Proceed to Migration
@@ -382,21 +407,21 @@ const Extract = () => {
                         <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() => handleExport('pdf')}
-                            className="flex items-center px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                            className="flex items-center px-3 py-2 text-gray-700 hover:text-[#ec6225] border border-gray-300 rounded-md hover:border-[#ec6225]"
                           >
                             <File className="h-4 w-4 mr-2" />
                             Download PDF
                           </button>
                           <button
                             onClick={() => handleExport('xlsx')}
-                            className="flex items-center px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                            className="flex items-center px-3 py-2 text-gray-700 hover:text-[#ec6225] border border-gray-300 rounded-md hover:border-[#ec6225]"
                           >
                             <FileSpreadsheet className="h-4 w-4 mr-2" />
                             Download Excel
                           </button>
                           <button
                             onClick={() => handleExport('json')}
-                            className="flex items-center px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                            className="flex items-center px-3 py-2 text-gray-700 hover:text-[#ec6225] border border-gray-300 rounded-md hover:border-[#ec6225]"
                           >
                             <FileText className="h-4 w-4 mr-2" />
                             Download JSON
