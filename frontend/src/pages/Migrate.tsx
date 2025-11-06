@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Play, CheckCircle, AlertCircle, Database, Table, FileText, Eye, ChevronDown, ChevronRight } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Play, CheckCircle, AlertCircle, Database, Table, ChevronDown, ChevronRight } from 'lucide-react';
 
 const Migrate = () => {
   const [session, setSession] = useState<any>(null);
@@ -270,7 +270,7 @@ const Migrate = () => {
             <div className="text-center py-8">
               <button
                 onClick={handleMigrateStructure}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 flex items-center mx-auto"
+                className="px-4 py-2 bg-[#ec6225] text-white rounded-md hover:bg-[#d4551e] flex items-center mx-auto"
               >
                 <Play className="h-4 w-4 mr-2" />
                 Migrate Structure
@@ -337,7 +337,7 @@ const Migrate = () => {
                 disabled={!canMigrateData}
                 className={`px-4 py-2 rounded-md flex items-center mx-auto ${
                   canMigrateData
-                    ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                    ? 'bg-[#ec6225] text-white hover:bg-[#d4551e]'
                     : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 }`}
               >
@@ -363,7 +363,7 @@ const Migrate = () => {
             </div>
             <button
               onClick={() => window.location.href = '/reconcile'}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center"
+              className="px-4 py-2 bg-[#085690] text-white rounded-md hover:bg-[#064a7a] flex items-center"
             >
               <CheckCircle className="h-4 w-4 mr-2" />
               Proceed to Validation
@@ -371,6 +371,12 @@ const Migrate = () => {
           </div>
         </div>
       )}
+
+      {/* Footer */}
+      <div className="mt-12 text-center">
+        <p className="text-lg font-bold text-gray-900 mb-2">DecisionMinds</p>
+        <p className="text-sm text-gray-600">Powered by DecisionMinds</p>
+      </div>
     </div>
   );
 };

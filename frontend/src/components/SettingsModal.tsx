@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Database, Plus, Trash2, Edit } from 'lucide-react';
 import { Connection } from '../types';
 import AddConnectionModal from './AddConnectionModal';

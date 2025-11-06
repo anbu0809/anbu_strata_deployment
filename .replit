@@ -1,0 +1,5 @@
+language = "python"
+run = "python main.py"
+
+[packager]
+ignoredPaths = ["venv", "node_modules", ".git"]

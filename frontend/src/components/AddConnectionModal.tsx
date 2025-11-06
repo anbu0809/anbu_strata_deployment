@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Database, Server, Key, User, Hash, FileText } from 'lucide-react';
+import { X, Database, Server, Key, User, Hash, FileText, CheckCircle, AlertCircle } from 'lucide-react';
 import { DatabaseType, Connection } from '../types';
 
 interface AddConnectionModalProps {

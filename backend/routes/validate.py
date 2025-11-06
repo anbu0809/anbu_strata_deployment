@@ -681,8 +681,15 @@ async def get_validation_status():
 
 @router.get("/report")
 async def get_validation_report():
-    # Load validation report if exists
+    global validation_status
+    
+    # First try to load from file if it exists
     if os.path.exists("artifacts/validation_report.json"):
         with open("artifacts/validation_report.json", "r") as f:
             return json.load(f)
+    
+    # If no file exists but validation has been run, return results from memory
+    if validation_status.get("results"):
+        return validation_status["results"]
+    
     return []

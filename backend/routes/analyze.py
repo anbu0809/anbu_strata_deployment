@@ -45,6 +45,7 @@ def get_db_connector(db_type: str):
 
 def analyze_mysql_schema(connection_info):
     """Analyze MySQL database schema comprehensively"""
+    print("[DEBUG] analyze_mysql_schema() function called - LIVE ROW COUNTING VERSION")
     try:
         # Import mysql.connector inside the function to handle import errors
         import mysql.connector
@@ -94,11 +95,11 @@ def analyze_mysql_schema(connection_info):
         
         # Get list of tables with detailed info
         cursor.execute("""
-            SELECT table_name, table_type, engine, table_rows, 
-                   avg_row_length, data_length, index_length, 
+            SELECT table_name, table_type, engine,
+                   avg_row_length, data_length, index_length,
                    create_time, update_time, table_comment,
                    row_format, table_collation
-            FROM information_schema.tables 
+            FROM information_schema.tables
             WHERE table_schema = %s
         """, (database,))
         tables_result = cursor.fetchall()
@@ -107,19 +108,34 @@ def analyze_mysql_schema(connection_info):
         tables = []
         for row in tables_result:
             table_name = row[0]
+            
+            # Get REAL row count directly from table (not cached from information_schema)
+            try:
+                print(f"[DEBUG] Counting rows for table {table_name}...")
+                cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
+                count_result = cursor.fetchone()
+                real_row_count = count_result[0] if count_result else 0
+                print(f"[DEBUG] {table_name} has {real_row_count} real rows")
+            except Exception as e:
+                print(f"Error counting rows for {table_name}: {e}")
+                real_row_count = 0
+            
+            # Unpack table info tuple properly
+            table_name_unpacked, table_type, engine, avg_row_length, data_length, index_length, create_time, update_time, comment, row_format, table_collation = row
+            
             table_info = {
-                "name": table_name,
-                "type": row[1],
-                "engine": row[2],
-                "estimated_rows": row[3] if row[3] else 0,
-                "avg_row_length": row[4] if row[4] else 0,
-                "data_length": row[5] if row[5] else 0,
-                "index_length": row[6] if row[6] else 0,
-                "create_time": str(row[7]) if row[7] else None,
-                "update_time": str(row[8]) if row[8] else None,
-                "comment": row[9] if row[9] else "",
-                "row_format": row[10] if row[10] else None,
-                "table_collation": row[11] if row[11] else None,
+                "name": table_name_unpacked,
+                "type": table_type,
+                "engine": engine,
+                "estimated_rows": real_row_count,  # Use REAL count, not cached
+                "avg_row_length": avg_row_length if avg_row_length else 0,
+                "data_length": data_length if data_length else 0,
+                "index_length": index_length if index_length else 0,
+                "create_time": str(create_time) if create_time else None,
+                "update_time": str(update_time) if update_time else None,
+                "comment": comment if comment else "",
+                "row_format": row_format if row_format else None,
+                "table_collation": table_collation if table_collation else None,
                 "columns": [],
                 "constraints": [],
                 "indexes": [],
@@ -520,199 +536,222 @@ def analyze_mysql_schema(connection_info):
     except Exception as e:
         raise Exception(f"MySQL analysis failed: {str(e)}")
 
+def analyze_postgresql_schema(connection_info):
+    """Analyze PostgreSQL database schema comprehensively"""
+    try:
+        import psycopg2
+        
+        # Extract credentials
+        credentials = connection_info.get("credentials", {})
+        host = credentials.get('host')
+        port = credentials.get('port', 5432)
+        database = credentials.get('database')
+        username = credentials.get('username')
+        password = credentials.get('password')
+        
+        # Create connection
+        connection_params = {
+            'host': host,
+            'port': port,
+            'database': database,
+            'user': username,
+            'password': password
+        }
+        
+        connection = psycopg2.connect(**connection_params)
+        cursor = connection.cursor()
+        
+        # Get database information
+        cursor.execute("SELECT version()")
+        version_result = cursor.fetchone()
+        version = version_result[0] if version_result else "Unknown"
+        
+        # Get character encoding
+        cursor.execute("SHOW server_encoding")
+        encoding_result = cursor.fetchone()
+        encoding = encoding_result[0] if encoding_result else "Unknown"
+        
+        # Get list of tables with detailed info
+        cursor.execute("""
+            SELECT
+                schemaname,
+                tablename,
+                tableowner,
+                hasindexes,
+                hasrules,
+                hastriggers
+            FROM pg_tables
+            WHERE schemaname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+            ORDER BY schemaname, tablename
+        """)
+        tables_result = cursor.fetchall()
+        
+        # Get detailed table structures
+        tables = []
+        for row in tables_result:
+            schema_name = row[0]
+            table_name = row[1]
+            table_info = {
+                "name": table_name,
+                "schema": schema_name,
+                "type": "BASE TABLE",
+                "engine": "heap",
+                "estimated_rows": 0,
+                "avg_row_length": 0,
+                "data_length": 0,
+                "index_length": 0,
+                "create_time": None,
+                "update_time": None,
+                "comment": "",
+                "row_format": "heap",
+                "table_collation": "C",
+                "columns": [],
+                "constraints": [],
+                "indexes": [],
+                "check_constraints": [],
+                "triggers": []
+            }
+            
+            # Get row count for this table
+            try:
+                cursor.execute(f"SELECT COUNT(*) FROM \"{schema_name}\".\"{table_name}\"")
+                count_result = cursor.fetchone()
+                table_info["estimated_rows"] = count_result[0] if count_result else 0
+            except Exception:
+                table_info["estimated_rows"] = 0
+            
+            # Get column details
+            try:
+                cursor.execute("""
+                    SELECT
+                        column_name,
+                        data_type,
+                        is_nullable,
+                        column_default,
+                        character_maximum_length,
+                        numeric_precision,
+                        numeric_scale,
+                        udt_name,
+                        column_default
+                    FROM information_schema.columns
+                    WHERE table_schema = %s AND table_name = %s
+                    ORDER BY ordinal_position
+                """, (schema_name, table_name))
+                columns_result = cursor.fetchall()
+                
+                for col_row in columns_result:
+                    column_info = {
+                        "name": col_row[0],
+                        "data_type": col_row[1],
+                        "is_nullable": col_row[2],
+                        "default": col_row[3],
+                        "max_length": col_row[4],
+                        "precision": col_row[5],
+                        "scale": col_row[6],
+                        "key": "",
+                        "extra": "",
+                        "comment": "",
+                        "column_type": col_row[7],
+                        "generation_expression": None,
+                        "collation": "C"
+                    }
+                    table_info["columns"].append(column_info)
+            except Exception:
+                pass
+            
+            tables.append(table_info)
+        
+        # Get views
+        cursor.execute("""
+            SELECT
+                schemaname,
+                viewname,
+                definition
+            FROM pg_views
+            WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
+            ORDER BY schemaname, viewname
+        """)
+        views_result = cursor.fetchall()
+        views = []
+        for row in views_result:
+            views.append({
+                "name": row[1],
+                "schema": row[0],
+                "definition": row[2],
+                "check_option": "NONE",
+                "is_updatable": "YES",
+                "definer": "postgres",
+                "security_type": "DEFINER",
+                "charset_client": "UTF8",
+                "collation_connection": "C"
+            })
+        
+        connection.close()
+        
+        return {
+            "database_type": "PostgreSQL",
+            "version": version,
+            "charset": encoding,
+            "collation": "C",
+            "schemas": list(set([table["schema"] for table in tables] + [view["schema"] for view in views])),
+            "tables": tables,
+            "views": views,
+            "procedures": [],
+            "functions": [],
+            "triggers": [],
+            "indexes": [],
+            "foreign_keys": [],
+            "sequences": [],
+            "partitions": [],
+            "users": [],
+            "grants": [],
+            "environment": {
+                "host": host,
+                "port": port,
+                "database": database
+            }
+        }
+    except Exception as e:
+        raise Exception(f"PostgreSQL analysis failed: {str(e)}")
+
 def analyze_database_schema(connection_info):
-    """Analyze database schema based on database type"""
+    """Analyze database schema based on database type - FIXED VERSION"""
     db_type = connection_info.get("dbType", "Unknown")
     
     if db_type == "MySQL":
         return analyze_mysql_schema(connection_info)
+    elif db_type == "PostgreSQL":
+        return analyze_postgresql_schema(connection_info)
     else:
-        # For other database types, we would implement similar analysis
-        # For now, we'll create a more realistic mock based on the actual connection
+        # For other database types, attempt to connect and analyze or return helpful error
         return {
             "database_type": db_type,
             "version": "Unknown",
             "charset": "Unknown",
             "collation": "Unknown",
             "schemas": [connection_info.get("credentials", {}).get("database", "Unknown")],
-            "tables": [
-                {
-                    "name": "sample_table_1", 
-                    "type": "BASE TABLE",
-                    "engine": "InnoDB",
-                    "estimated_rows": 1000,
-                    "avg_row_length": 150,
-                    "data_length": 150000,
-                    "index_length": 30000,
-                    "create_time": "2023-01-01 12:00:00",
-                    "update_time": "2023-01-15 14:30:00",
-                    "comment": "Sample table for demonstration",
-                    "partitioned": False,
-                    "tablespace": None,
-                    "row_format": "Dynamic",
-                    "compression": None,
-                    "table_collation": "utf8mb4_0900_ai_ci",
-                    "columns": [
-                        {
-                            "name": "id",
-                            "data_type": "int",
-                            "is_nullable": "NO",
-                            "default": None,
-                            "max_length": None,
-                            "precision": 10,
-                            "scale": 0,
-                            "key": "PRI",
-                            "extra": "auto_increment",
-                            "comment": "Primary key",
-                            "column_type": "int",
-                            "generation_expression": None,
-                            "collation": None
-                        },
-                        {
-                            "name": "name",
-                            "data_type": "varchar",
-                            "is_nullable": "YES",
-                            "default": None,
-                            "max_length": 255,
-                            "precision": None,
-                            "scale": None,
-                            "key": "",
-                            "extra": "",
-                            "comment": "User name",
-                            "column_type": "varchar(255)",
-                            "generation_expression": None,
-                            "collation": "utf8mb4_0900_ai_ci"
-                        }
-                    ],
-                    "constraints": [
-                        {"name": "PRIMARY", "type": "PRIMARY KEY", "enforced": True}
-                    ],
-                    "check_constraints": [],
-                    "indexes": [
-                        {
-                            "name": "PRIMARY",
-                            "unique": True,
-                            "columns": ["id"],
-                            "collation": "A",
-                            "cardinality": 1000,
-                            "sub_part": None,
-                            "packed": None,
-                            "null": "",
-                            "index_type": "BTREE",
-                            "comment": "",
-                        }
-                    ],
-                    "triggers": []
-                }
-            ],
-            "views": [
-                {
-                    "name": "sample_view",
-                    "definition": "SELECT id, name FROM sample_table_1 WHERE name IS NOT NULL",
-                    "check_option": "NONE",
-                    "is_updatable": "YES",
-                    "definer": "root@%",
-                    "security_type": "DEFINER",
-                    "charset_client": "utf8mb4",
-                    "collation_connection": "utf8mb4_0900_ai_ci"
-                }
-            ],
-            "procedures": [
-                {
-                    "name": "sample_procedure",
-                    "definition": "CREATE PROCEDURE sample_procedure() BEGIN SELECT COUNT(*) FROM sample_table_1; END",
-                    "sql_data_access": "CONTAINS SQL",
-                    "sql_mode": "STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION",
-                    "comment": "",
-                    "definer": "root@%",
-                    "created": "2023-01-01 12:00:00",
-                    "last_altered": "2023-01-01 12:00:00",
-                    "security_type": "DEFINER",
-                    "charset_client": "utf8mb4",
-                    "collation_connection": "utf8mb4_0900_ai_ci",
-                    "database_collation": "utf8mb4_0900_ai_ci"
-                }
-            ],
-            "functions": [
-                {
-                    "name": "sample_function",
-                    "definition": "CREATE FUNCTION sample_function(x INT) RETURNS INT RETURN x * 2",
-                    "sql_data_access": "CONTAINS SQL",
-                    "sql_mode": "STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION",
-                    "comment": "",
-                    "definer": "root@%",
-                    "created": "2023-01-01 12:00:00",
-                    "last_altered": "2023-01-01 12:00:00",
-                    "security_type": "DEFINER",
-                    "charset_client": "utf8mb4",
-                    "collation_connection": "utf8mb4_0900_ai_ci",
-                    "database_collation": "utf8mb4_0900_ai_ci",
-                    "routine_body": "SQL",
-                    "external_name": None,
-                    "external_language": "SQL"
-                }
-            ],
-            "triggers": [
-                {
-                    "name": "sample_trigger",
-                    "event": "INSERT",
-                    "table": "sample_table_1",
-                    "action": "SET NEW.created_at = NOW()",
-                    "timing": "BEFORE",
-                    "old_table": None,
-                    "new_table": None,
-                    "old_row": "OLD",
-                    "new_row": "NEW",
-                    "sql_mode": "STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION",
-                    "definer": "root@%",
-                    "charset_client": "utf8mb4",
-                    "collation_connection": "utf8mb4_0900_ai_ci",
-                    "database_collation": "utf8mb4_0900_ai_ci",
-                    "created": "2023-01-01 12:00:00"
-                }
-            ],
-            "indexes": [
-                {
-                    "table": "sample_table_1",
-                    "name": "PRIMARY",
-                    "unique": True,
-                    "columns": ["id"],
-                    "collation": "A",
-                    "cardinality": 1000,
-                    "sub_part": None,
-                    "packed": None,
-                    "nullable": "",
-                    "index_type": "BTREE",
-                    "comment": "",
-                    "index_comment": "",
-                    "is_visible": "YES",
-                    "expression": None
-                }
-            ],
+            "tables": [],
+            "views": [],
+            "procedures": [],
+            "functions": [],
+            "triggers": [],
+            "indexes": [],
             "foreign_keys": [],
-            "sequences": [
-                {
-                    "table": "sample_table_1",
-                    "column": "id",
-                    "extra": "auto_increment"
-                }
-            ],
+            "sequences": [],
             "partitions": [],
-            "users": [
-                {"user": "sample_user", "host": "%"}
-            ],
-            "grants": [
-                "GRANT SELECT, INSERT, UPDATE, DELETE ON *.* TO 'sample_user'@'%'"
-            ],
+            "users": [],
+            "grants": [],
             "environment": {
-                "host": "unknown", 
+                "host": "unknown",
                 "port": 0,
                 "database": "unknown"
-            }
+            },
+            "error": f"Database type '{db_type}' is not supported. Currently supported: MySQL, PostgreSQL."
         }
 
 async def run_analysis_task():
     """Background task to run the analysis"""
+    print("[DEBUG] run_analysis_task() called - checking what version is running")
     global analysis_status
     
     # Reset status
@@ -761,8 +800,22 @@ async def run_analysis_task():
         analysis_status["phase"] = "Generating analysis report"
         analysis_status["percent"] = 100
         
-        # Save to artifacts directory
+        # Clear existing artifacts before saving new analysis
+        if os.path.exists("artifacts"):
+            import shutil
+            shutil.rmtree("artifacts")
+            print("[DEBUG] Cleared artifacts directory")
         os.makedirs("artifacts", exist_ok=True)
+        
+        # Add timestamp to analysis bundle
+        import datetime
+        analysis_bundle["analysis_timestamp"] = datetime.datetime.now().isoformat()
+        analysis_bundle["analysis_version"] = "v2_live_rows"
+        
+        print(f"[DEBUG] Saving analysis with {len(analysis_bundle['tables'])} tables and live row counts")
+        table_counts = [f"{t['name']}:{t['estimated_rows']}" for t in analysis_bundle['tables']]
+        print(f"[DEBUG] Table row counts: {table_counts}")
+        
         with open("artifacts/analysis_bundle.json", "w") as f:
             json.dump(analysis_bundle, f, indent=2, default=str)
         

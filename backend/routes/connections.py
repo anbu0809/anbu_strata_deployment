@@ -39,11 +39,12 @@ def test_mysql_connection(credentials):
         database = credentials.get('database')
         username = credentials.get('username')
         password = credentials.get('password')
-        ssl_mode = credentials.get('ssl', 'true')  # Default to true for MySQL
+        # Handle both 'ssl' and 'ssl-mode' parameters for compatibility
+        ssl_mode = credentials.get('ssl', credentials.get('ssl-mode', 'require'))
         
         # Configure SSL settings based on the sslmode
         ssl_config = {}
-        if ssl_mode == 'false':
+        if ssl_mode == 'disable' or ssl_mode == 'false':
             ssl_config['ssl_disabled'] = True
         else:
             # For Azure MySQL, we need to handle SSL properly
@@ -51,6 +52,11 @@ def test_mysql_connection(credentials):
             # Don't verify certificate for Azure MySQL unless specifically configured
             ssl_config['ssl_verify_cert'] = False
             ssl_config['ssl_verify_identity'] = False
+            # For Azure MySQL, we might need to provide SSL certificate
+            # But for now, we'll disable verification to make it work
+            if 'testingserver.mysql.database.azure.com' in host:
+                ssl_config['ssl_verify_cert'] = False
+                ssl_config['ssl_verify_identity'] = False
         
         # Create connection with SSL configuration
         connection_params = {
