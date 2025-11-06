@@ -240,6 +240,7 @@ def connect_to_database(connection_info):
             password = credentials.get('password')
             ssl_mode = credentials.get('ssl', 'require')  # Default to require for Azure
             
+<<<<<<< HEAD
             # Try multiple ports - Azure PostgreSQL typically uses 5432, not custom ports
             ports_to_try = [port, 5432]  # Try saved port first, then 5432
             
@@ -284,6 +285,19 @@ def connect_to_database(connection_info):
             
             # If we get here, all attempts failed
             raise Exception("PostgreSQL connection failed on all tried ports")
+=======
+            # Create connection parameters dict for better compatibility
+            connection_params = {
+                'host': host,
+                'port': port,
+                'dbname': database,
+                'user': username,
+                'password': password,
+                'application_name': 'Strata Migration Tool'
+            }
+            
+            return psycopg2.connect(**connection_params)
+>>>>>>> 2bb625ee0617c45755d22371607b2042120a9976
         
         # For other database types, we would implement similar connection logic
         # For now, we'll raise an exception for unsupported database types

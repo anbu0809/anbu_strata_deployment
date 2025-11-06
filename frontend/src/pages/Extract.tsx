@@ -241,6 +241,12 @@ const Extract = () => {
             </div>
           </div>
         )}
+  
+        {/* Footer */}
+        <div className="mt-12 text-center">
+          <p className="text-lg font-bold text-gray-900 mb-2">DecisionMinds</p>
+          <p className="text-sm text-gray-600">Powered by DecisionMinds</p>
+        </div>
       </div>
     );
   };

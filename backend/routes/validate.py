@@ -721,6 +721,7 @@ async def get_validation_report():
     if validation_status.get("results"):
         return validation_status["results"]
     
+<<<<<<< HEAD
     return []
 
 @router.get("/export/{format}")
@@ -862,3 +863,6 @@ async def export_validation_report(format: str):
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             filename="validation_report.xlsx"
         )
+=======
+    return []
+>>>>>>> 2bb625ee0617c45755d22371607b2042120a9976
