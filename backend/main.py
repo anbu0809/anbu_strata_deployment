@@ -17,7 +17,7 @@ load_dotenv()
 # Initialize the database
 init_db()
 
-app = FastAPI(title="Strata - Enterprise AI Translation Platform")
+app = FastAPI(title="Strata - AI-Powered Database Migration")
 
 # Add CORS middleware
 app.add_middleware(
@@ -35,17 +35,14 @@ app.include_router(analyze.router, prefix="/api/analyze", tags=["analyze"])
 app.include_router(extract.router, prefix="/api/extract", tags=["extract"])
 app.include_router(migrate.router, prefix="/api/migrate", tags=["migrate"])
 app.include_router(validate.router, prefix="/api/validate", tags=["validate"])
-<<<<<<< HEAD
 
 # Add global export routes for validation reports
 from backend.routes.validate import router as validate_router
 app.include_router(validate_router, prefix="/api", tags=["export"])
-=======
->>>>>>> 2bb625ee0617c45755d22371607b2042120a9976
 
 @app.get("/")
 async def root():
-    return {"message": "Strata - Enterprise AI Translation Platform"}
+    return {"message": "Strata - AI-Powered Database Migration"}
 
 @app.get("/api/health")
 async def health_check():

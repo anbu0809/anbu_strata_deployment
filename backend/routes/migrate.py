@@ -240,52 +240,7 @@ def connect_to_database(connection_info):
             password = credentials.get('password')
             ssl_mode = credentials.get('ssl', 'require')  # Default to require for Azure
             
-<<<<<<< HEAD
-            # Try multiple ports - Azure PostgreSQL typically uses 5432, not custom ports
-            ports_to_try = [port, 5432]  # Try saved port first, then 5432
-            
-            for attempt_port in ports_to_try:
-                try:
-                    # Create connection parameters dict for better compatibility
-                    connection_params = {
-                        'host': host,
-                        'port': attempt_port,
-                        'dbname': database,
-                        'user': username,
-                        'password': password,
-                        'application_name': 'Strata Migration Tool',
-                        'connect_timeout': 10  # 10 second timeout
-                    }
-                    
-                    # Configure SSL for Azure PostgreSQL
-                    if ssl_mode == 'true' or ssl_mode == 'require':
-                        connection_params['sslmode'] = 'require'
-                    elif ssl_mode == 'false' or ssl_mode == 'disable':
-                        connection_params['sslmode'] = 'disable'
-                    else:
-                        connection_params['sslmode'] = 'prefer'
-                    
-                    print(f"Trying PostgreSQL connection to {host}:{attempt_port}...")
-                    connection = psycopg2.connect(**connection_params)
-                    
-                    # Test the connection
-                    cursor = connection.cursor()
-                    cursor.execute('SELECT 1')
-                    cursor.fetchone()
-                    cursor.close()
-                    
-                    print(f"SUCCESS: Successfully connected to PostgreSQL at {host}:{attempt_port}")
-                    return connection
-                    
-                except Exception as e:
-                    print(f"FAILED: Failed to connect to {host}:{attempt_port}: {e}")
-                    if attempt_port == ports_to_try[-1]:  # Last attempt
-                        raise Exception(f"PostgreSQL connection failed on all tried ports. Last error: {str(e)}")
-                    continue  # Try next port
-            
-            # If we get here, all attempts failed
-            raise Exception("PostgreSQL connection failed on all tried ports")
-=======
+
             # Create connection parameters dict for better compatibility
             connection_params = {
                 'host': host,
@@ -297,7 +252,19 @@ def connect_to_database(connection_info):
             }
             
             return psycopg2.connect(**connection_params)
->>>>>>> 2bb625ee0617c45755d22371607b2042120a9976
+
+            # Create connection parameters dict for better compatibility
+            connection_params = {
+                'host': host,
+                'port': port,
+                'dbname': database,
+                'user': username,
+                'password': password,
+                'application_name': 'Strata Migration Tool'
+            }
+            
+            return psycopg2.connect(**connection_params)
+
         
         # For other database types, we would implement similar connection logic
         # For now, we'll raise an exception for unsupported database types
