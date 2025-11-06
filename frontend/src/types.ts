@@ -19,7 +19,7 @@ export interface AnalysisStatus {
 
 export interface ValidationItem {
   category: string;
-  status: 'Pass' | 'Fail';
+  status: 'Pass' | 'Fail' | 'Warning';
   errorDetails: string | null;
   suggestedFix: string | null;
   confidenceScore: number;

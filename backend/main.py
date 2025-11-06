@@ -36,6 +36,10 @@ app.include_router(extract.router, prefix="/api/extract", tags=["extract"])
 app.include_router(migrate.router, prefix="/api/migrate", tags=["migrate"])
 app.include_router(validate.router, prefix="/api/validate", tags=["validate"])
 
+# Add global export routes for validation reports
+from backend.routes.validate import router as validate_router
+app.include_router(validate_router, prefix="/api", tags=["export"])
+
 @app.get("/")
 async def root():
     return {"message": "Strata - Enterprise AI Translation Platform"}

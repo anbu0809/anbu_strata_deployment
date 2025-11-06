@@ -8,7 +8,10 @@ const TopBar = ({ onSettingsClick }: TopBarProps) => {
   return (
     <div className="bg-white shadow-sm border-b px-6 py-4 flex justify-between items-center">
       <div className="flex items-center">
-        <h2 className="text-xl font-semibold text-[#085690]">Strata – Enterprise AI Translation Platform</h2>
+        <div>
+          <h2 className="text-lg font-bold text-[#085690]">Strata</h2>
+          <p className="text-xs text-gray-500 -mt-1">AI-Powered Database Migration</p>
+        </div>
       </div>
       
       <div className="flex items-center space-x-4">

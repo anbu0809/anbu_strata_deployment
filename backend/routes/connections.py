@@ -97,12 +97,81 @@ def test_connection_by_type(db_type: str, credentials: dict):
         # Actually test the connection based on database type
         if db_type == "MySQL":
             return test_mysql_connection(credentials)
+        elif db_type == "PostgreSQL":
+            return test_postgresql_connection(credentials)
         
         # For other database types, we would implement similar testing
         # For now, we'll just simulate a successful connection for non-MySQL databases
         return True, "8.0.0"
     except Exception as e:
         return False, str(e)
+
+def test_postgresql_connection(credentials):
+    """Test PostgreSQL connection with proper SSL handling for Azure"""
+    try:
+        import psycopg2
+        import psycopg2.extras
+        
+        # Extract credentials
+        host = credentials.get('host')
+        port = credentials.get('port', 5432)
+        database = credentials.get('database')
+        username = credentials.get('username')
+        password = credentials.get('password')
+        ssl_mode = credentials.get('ssl', 'require')  # Default to require for Azure
+        
+        # Create connection parameters with SSL configuration for Azure
+        connection_params = {
+            'host': host,
+            'port': port,
+            'dbname': database,
+            'user': username,
+            'password': password,
+            'application_name': 'Strata Migration Tool'
+        }
+        
+        # Configure SSL for Azure PostgreSQL
+        if ssl_mode == 'true' or ssl_mode == 'require':
+            connection_params['sslmode'] = 'require'
+        elif ssl_mode == 'false' or ssl_mode == 'disable':
+            connection_params['sslmode'] = 'disable'
+        else:
+            connection_params['sslmode'] = 'prefer'  # Default to prefer
+        
+        # For Azure PostgreSQL, we might need to specify SSL root certificate
+        # But for most cases, just requiring SSL should work
+        connection_params['connect_timeout'] = 10  # 10 second timeout
+        
+        connection = psycopg2.connect(**connection_params)
+        
+        if connection:
+            # Test the connection
+            cursor = connection.cursor()
+            cursor.execute('SELECT version()')
+            version = cursor.fetchone()[0]
+            connection.close()
+            return True, version[:50]  # Return truncated version
+        else:
+            return False, "Failed to connect"
+            
+    except ImportError:
+        return False, "PostgreSQL connector not installed"
+    except Exception as e:
+        # Get port for error message (in case the exception happened before port assignment)
+        try:
+            port = credentials.get('port', 5432)
+        except:
+            port = 5432  # fallback
+            
+        error_msg = str(e)
+        if "timeout" in error_msg.lower():
+            return False, f"Connection timeout: {error_msg}. Check if the server is accessible and port {port} is open."
+        elif "ssl" in error_msg.lower():
+            return False, f"SSL connection error: {error_msg}"
+        elif "authentication" in error_msg.lower():
+            return False, f"Authentication failed: {error_msg}. Check username and password."
+        else:
+            return False, f"PostgreSQL connection failed: {error_msg}"
 
 @router.post("/test", response_model=ConnectionTestResponse)
 async def test_connection(request: ConnectionTestRequest):

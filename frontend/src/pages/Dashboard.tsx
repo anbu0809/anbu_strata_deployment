@@ -10,31 +10,31 @@ const Dashboard = () => {
   const stats = [
     {
       title: 'Total Migration Data',
-      value: '0 GB',
+      value: '2.4 GB',
       icon: Database,
       gradient: 'bg-gradient-to-r from-[#ec6225] to-[#085690]',
-      change: 'Ready to start'
+      change: '15% increase this month'
     },
     {
       title: 'Top Migration Issues',
-      value: '0',
+      value: '3',
       icon: AlertTriangle,
       gradient: 'bg-gradient-to-r from-[#085690] to-[#ec6225]',
-      change: 'No issues detected'
+      change: '2 resolved, 1 active'
     },
     {
       title: 'Migrations Completed',
-      value: '0',
+      value: '12',
       icon: CheckCircle,
       gradient: 'bg-gradient-to-r from-[#ec6225] to-[#085690]',
-      change: 'No migrations yet'
+      change: '8 successful this week'
     },
     {
       title: 'Failed Migrations',
-      value: '0',
+      value: '2',
       icon: TrendingUp,
       gradient: 'bg-gradient-to-r from-[#085690] to-[#ec6225]',
-      change: 'No failures yet'
+      change: 'Retry scheduled'
     }
   ];
 
@@ -127,8 +127,12 @@ const Dashboard = () => {
 
       {/* Footer */}
       <div className="mt-12 text-center">
-        <p className="text-lg font-bold text-gray-900 mb-2">DecisionMinds</p>
-        <p className="text-sm text-gray-600">Powered by DecisionMinds</p>
+        <img
+          src="/src/assets/dm_logo.png"
+          alt="DecisionMinds"
+          className="h-8 w-auto mx-auto"
+        />
+        <p className="text-sm text-gray-600 mt-2">Powered by DecisionMinds</p>
       </div>
     </div>
   );

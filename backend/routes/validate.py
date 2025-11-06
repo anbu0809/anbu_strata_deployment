@@ -87,13 +87,42 @@ def connect_to_database(connection_info: Dict[str, Any]):
             return mysql.connector.connect(**connection_params)
             
         elif db_type == "PostgreSQL":
-            return psycopg2.connect(
-                host=credentials.get('host'),
-                port=credentials.get('port'),
-                database=credentials.get('database'),
-                user=credentials.get('username'),
-                password=credentials.get('password')
-            )
+            # Try multiple ports - Azure PostgreSQL typically uses 5432, not custom ports
+            ports_to_try = [credentials.get('port', 5432), 5432]  # Try saved port first, then 5432
+            
+            for attempt_port in ports_to_try:
+                try:
+                    # Create connection parameters dict for better compatibility
+                    connection_params = {
+                        'host': credentials.get('host'),
+                        'port': attempt_port,
+                        'database': credentials.get('database'),
+                        'user': credentials.get('username'),
+                        'password': credentials.get('password'),
+                        'application_name': 'Strata Validation Tool',
+                        'connect_timeout': 10  # 10 second timeout
+                    }
+                    
+                    print(f"Trying PostgreSQL connection to {credentials.get('host')}:{attempt_port}...")
+                    connection = psycopg2.connect(**connection_params)
+                    
+                    # Test the connection
+                    cursor = connection.cursor()
+                    cursor.execute('SELECT 1')
+                    cursor.fetchone()
+                    cursor.close()
+                    
+                    print(f"SUCCESS: Successfully connected to PostgreSQL at {credentials.get('host')}:{attempt_port}")
+                    return connection
+                    
+                except Exception as e:
+                    print(f"FAILED: Failed to connect to {credentials.get('host')}:{attempt_port}: {e}")
+                    if attempt_port == ports_to_try[-1]:  # Last attempt
+                        raise Exception(f"PostgreSQL connection failed on all tried ports. Last error: {str(e)}")
+                    continue  # Try next port
+            
+            # If we get here, all attempts failed
+            raise Exception("PostgreSQL connection failed on all tried ports")
             
         # Add other database types as needed
         else:
@@ -693,3 +722,143 @@ async def get_validation_report():
         return validation_status["results"]
     
     return []
+
+@router.get("/export/{format}")
+async def export_validation_report(format: str):
+    """Export validation report in different formats"""
+    if format not in ['pdf', 'json', 'xlsx']:
+        return {"error": "Unsupported export format. Use pdf, json, or xlsx"}
+    
+    if not os.path.exists("artifacts/validation_report.json"):
+        return {"error": "No validation report found"}
+    
+    with open("artifacts/validation_report.json", "r") as f:
+        results = json.load(f)
+    
+    if format == "json":
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            content=results,
+            headers={"Content-Disposition": "attachment; filename=validation_report.json"}
+        )
+    
+    elif format == "pdf":
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib import colors
+        from reportlab.lib.units import inch
+        
+        pdf_filename = "artifacts/validation_report.pdf"
+        doc = SimpleDocTemplate(pdf_filename, pagesize=letter)
+        styles = getSampleStyleSheet()
+        story = []
+        
+        # Title
+        title = Paragraph("Strata - Database Migration Validation Report", styles["Title"])
+        story.append(title)
+        story.append(Spacer(1, 12))
+        
+        # Summary
+        passed_count = sum(1 for r in results if r.get('status') == 'Pass')
+        failed_count = sum(1 for r in results if r.get('status') == 'Fail')
+        warning_count = sum(1 for r in results if r.get('status') == 'Warning')
+        
+        summary_data = [["Status", "Count"], ["Passed", str(passed_count)], ["Failed", str(failed_count)], ["Warning", str(warning_count)]]
+        summary_table = Table(summary_data)
+        summary_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 14),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(summary_table)
+        story.append(Spacer(1, 12))
+        
+        # Detailed results
+        for result in results:
+            category = result.get('category', 'Unknown')
+            status = result.get('status', 'Unknown')
+            error = result.get('errorDetails', 'None')
+            fix = result.get('suggestedFix', 'None')
+            confidence = result.get('confidenceScore', 0)
+            
+            result_data = [
+                ["Category", category],
+                ["Status", status],
+                ["Error Details", error],
+                ["Suggested Fix", fix],
+                ["Confidence", str(confidence)]
+            ]
+            
+            result_table = Table(result_data, colWidths=[2*inch, 4*inch])
+            result_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9)
+            ]))
+            story.append(result_table)
+            story.append(Spacer(1, 12))
+        
+        doc.build(story)
+        from fastapi.responses import FileResponse
+        return FileResponse(
+            pdf_filename,
+            media_type="application/pdf",
+            filename="validation_report.pdf"
+        )
+    
+    elif format == "xlsx":
+        import xlsxwriter
+        
+        xlsx_filename = "artifacts/validation_report.xlsx"
+        workbook = xlsxwriter.Workbook(xlsx_filename)
+        
+        # Summary sheet
+        summary_sheet = workbook.add_worksheet("Summary")
+        summary_sheet.write(0, 0, "Strata - Database Migration Validation Report")
+        summary_sheet.write(2, 0, "Status")
+        summary_sheet.write(2, 1, "Count")
+        
+        passed_count = sum(1 for r in results if r.get('status') == 'Pass')
+        failed_count = sum(1 for r in results if r.get('status') == 'Fail')
+        warning_count = sum(1 for r in results if r.get('status') == 'Warning')
+        
+        summary_sheet.write(3, 0, "Passed")
+        summary_sheet.write(3, 1, passed_count)
+        summary_sheet.write(4, 0, "Failed")
+        summary_sheet.write(4, 1, failed_count)
+        summary_sheet.write(5, 0, "Warning")
+        summary_sheet.write(5, 1, warning_count)
+        
+        # Details sheet
+        details_sheet = workbook.add_worksheet("Details")
+        details_sheet.write(0, 0, "Category")
+        details_sheet.write(0, 1, "Status")
+        details_sheet.write(0, 2, "Error Details")
+        details_sheet.write(0, 3, "Suggested Fix")
+        details_sheet.write(0, 4, "Confidence")
+        
+        row = 1
+        for result in results:
+            details_sheet.write(row, 0, result.get('category', ''))
+            details_sheet.write(row, 1, result.get('status', ''))
+            details_sheet.write(row, 2, result.get('errorDetails', ''))
+            details_sheet.write(row, 3, result.get('suggestedFix', ''))
+            details_sheet.write(row, 4, result.get('confidenceScore', 0))
+            row += 1
+        
+        workbook.close()
+        from fastapi.responses import FileResponse
+        return FileResponse(
+            xlsx_filename,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename="validation_report.xlsx"
+        )

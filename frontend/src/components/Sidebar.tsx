@@ -29,9 +29,12 @@ const Sidebar = () => {
 
   return (
     <div className="w-64 bg-white shadow-md flex flex-col">
-      <div className="p-6 border-b">
-        <h1 className="text-xl font-bold text-[#085690]">Strata</h1>
-        <p className="text-sm text-gray-500">Enterprise AI Translation Platform</p>
+      <div className="p-6 border-b flex items-center justify-center">
+        <img
+          src="/src/assets/logo_custom.png"
+          alt="Strata Platform"
+          className="h-12 w-auto"
+        />
       </div>
 
       <nav className="flex-1 p-4">

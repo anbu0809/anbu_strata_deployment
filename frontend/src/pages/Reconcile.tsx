@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Play, CheckCircle, AlertCircle, Download, Database, Server } from 'lucide-react';
 import { ValidationItem } from '../types';
 
@@ -12,27 +12,42 @@ export default function Reconcile() {
     done: false,
     error: null as string | null
   });
+  
+  // Use ref to store interval ID
+  const pollIntervalRef = useRef<number | null>(null);
 
-  // Fetch validation results on component mount
+  // Only fetch validation status when user manually clicks Run Validation
+  // REMOVED: Auto-start validation on page load
   useEffect(() => {
-    fetchValidationResults();
-    // Poll for status updates
-    const interval = setInterval(() => {
-      fetchValidationStatus();
-    }, 2000);
-    return () => clearInterval(interval);
+    // No automatic validation calls - validation is manual only
+    return () => {
+      // Cleanup interval on component unmount
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
   }, []);
 
+  // Only fetch validation status when validation is actually running
   const fetchValidationStatus = async () => {
     try {
       const response = await fetch('/api/validate/status');
       if (response.ok) {
         const data = await response.json();
         setValidationStatus(data);
-        // If validation is done, stop the running state
+        console.log('Validation status:', data); // Debug log
+        // If validation is done, stop the running state and polling
         if (data.done) {
           setIsRunning(false);
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
+          // Fetch results after completion
+          fetchValidationResults();
         }
+      } else {
+        console.error('Validation status response not ok:', response.status);
       }
     } catch (error) {
       console.error('Failed to fetch validation status:', error);
@@ -44,10 +59,13 @@ export default function Reconcile() {
       const response = await fetch('/api/validate/report');
       if (response.ok) {
         const data = await response.json();
+        console.log('Validation results:', data); // Debug log
         setValidationResults(data);
         if (data.length > 0) {
           setCanExport(true);
         }
+      } else {
+        console.error('Validation results response not ok:', response.status);
       }
     } catch (error) {
       console.error('Failed to fetch validation results:', error);
@@ -55,15 +73,21 @@ export default function Reconcile() {
   };
 
   const handleRunValidation = async () => {
+    console.log('Starting validation...'); // Debug log
     setIsRunning(true);
     setValidationResults([]);
     setCanExport(false);
     setValidationStatus({
-      phase: '',
+      phase: 'Initializing',
       percent: 0,
       done: false,
       error: null
     });
+    
+    // Clear any existing interval
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
     
     try {
       const response = await fetch('/api/validate/run', {
@@ -73,9 +97,25 @@ export default function Reconcile() {
       if (!response.ok) {
         throw new Error('Failed to start validation');
       }
+      
+      console.log('Validation started successfully, beginning polling...'); // Debug log
+      
+      // Start polling for status updates immediately
+      pollIntervalRef.current = setInterval(() => {
+        console.log('Polling validation status...'); // Debug log
+        fetchValidationStatus();
+      }, 2000);
+      
+      // Also fetch status immediately
+      fetchValidationStatus();
+      
     } catch (error) {
       console.error('Failed to start validation:', error);
       setIsRunning(false);
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
     }
   };
 
@@ -326,8 +366,12 @@ export default function Reconcile() {
 
       {/* Footer */}
       <div className="mt-12 text-center">
-        <p className="text-lg font-bold text-gray-900 mb-2">DecisionMinds</p>
-        <p className="text-sm text-gray-600">Powered by DecisionMinds</p>
+        <img
+          src="/src/assets/dm_logo.png"
+          alt="DecisionMinds"
+          className="h-8 w-auto mx-auto"
+        />
+        <p className="text-sm text-gray-600 mt-2">Powered by DecisionMinds</p>
       </div>
     </div>
   );

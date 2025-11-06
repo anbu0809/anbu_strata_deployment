@@ -582,8 +582,12 @@ const Analyze = ({ connections }: AnalyzeProps) => {
 
       {/* Footer */}
       <div className="mt-12 text-center">
-        <p className="text-lg font-bold text-gray-900 mb-2">DecisionMinds</p>
-        <p className="text-sm text-gray-600">Powered by DecisionMinds</p>
+        <img
+          src="/src/assets/dm_logo.png"
+          alt="DecisionMinds"
+          className="h-8 w-auto mx-auto"
+        />
+        <p className="text-sm text-gray-600 mt-2">Powered by DecisionMinds</p>
       </div>
     </div>
   );

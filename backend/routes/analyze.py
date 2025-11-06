@@ -47,39 +47,41 @@ def analyze_mysql_schema(connection_info):
     """Analyze MySQL database schema comprehensively"""
     print("[DEBUG] analyze_mysql_schema() function called - LIVE ROW COUNTING VERSION")
     try:
-        # Import mysql.connector inside the function to handle import errors
-        import mysql.connector
+        # Use the same connection function as the working migration
+        from backend.routes.migrate import connect_to_database
         
-        # Extract credentials
+        # Get connection using the working function
+        connection = connect_to_database(connection_info)
+        cursor = connection.cursor()
+        
+        # DEBUG: Log the database name being used
         credentials = connection_info.get("credentials", {})
-        host = credentials.get('host')
-        port = credentials.get('port', 3306)
         database = credentials.get('database')
-        username = credentials.get('username')
-        password = credentials.get('password')
-        ssl_mode = credentials.get('ssl', 'true')
+        print(f"[DEBUG] Database name in analysis: '{database}'")
+        print(f"[DEBUG] Database name length: {len(database)}")
+        print(f"[DEBUG] Database name bytes: {database.encode()}")
         
-        # Configure SSL settings
-        ssl_config = {}
-        if ssl_mode == 'false':
-            ssl_config['ssl_disabled'] = True
-        else:
-            # For Azure MySQL, we need to handle SSL properly
-            ssl_config['ssl_disabled'] = False
-            ssl_config['ssl_verify_cert'] = False
-            ssl_config['ssl_verify_identity'] = False
+        # FIX: Trim whitespace from database name to match actual database
+        database = database.strip() if database else database
+        print(f"[DEBUG] Database name after trim: '{database}'")
+        print(f"[DEBUG] Database name length after trim: {len(database)}")
         
-        # Create connection with SSL configuration
-        connection_params = {
-            'host': host,
-            'port': port,
-            'database': database,
-            'user': username,
-            'password': password,
-            **ssl_config
-        }
+        # Get list of tables with detailed info
+        cursor.execute("""
+            SELECT table_name, table_type, engine,
+                   avg_row_length, data_length, index_length,
+                   create_time, update_time, table_comment,
+                   row_format, table_collation
+            FROM information_schema.tables
+            WHERE table_schema = %s
+        """, (database,))
+        tables_result = cursor.fetchall()
         
-        connection = mysql.connector.connect(**connection_params)
+        print(f"[DEBUG] Query returned {len(tables_result)} tables")
+        for table in tables_result:
+            print(f"[DEBUG] Found table: {table[0]}")
+        
+        connection = connect_to_database(connection_info)
         cursor = connection.cursor()
         
         # Get database information
@@ -103,6 +105,8 @@ def analyze_mysql_schema(connection_info):
             WHERE table_schema = %s
         """, (database,))
         tables_result = cursor.fetchall()
+        
+        print(f"[DEBUG] Query returned {len(tables_result)} tables")
         
         # Get detailed table structures
         tables = []
@@ -528,8 +532,8 @@ def analyze_mysql_schema(connection_info):
             "users": users,
             "grants": grants,
             "environment": {
-                "host": host, 
-                "port": port,
+                "host": credentials.get('host'),
+                "port": credentials.get('port', 3306),
                 "database": database
             }
         }
