@@ -551,11 +551,26 @@ async def run_structure_migration_task():
         structure_migration_status["percent"] = 10
         
         # Check if extraction bundle exists
-        if not os.path.exists("artifacts/extraction_bundle.json"):
-            raise Exception("Extraction bundle not found. Please run extraction first.")
+        # if not os.path.exists("artifacts/extraction_bundle.json"):
+        #     raise Exception("Extraction bundle not found. Please run extraction first.")
         
-        with open("artifacts/extraction_bundle.json", "r") as f:
-            extraction_data = json.load(f)
+        # with open("artifacts/extraction_bundle.json", "r") as f:
+        #     extraction_data = json.load(f)
+        # Check if extraction bundle exists, if not try to run extraction automatically
+        extraction_bundle_path = "artifacts/extraction_bundle.json"
+        if not os.path.exists(extraction_bundle_path):
+            print("Extraction bundle not found. Running automatic extraction...")
+            try:
+                from routes.extract import extract_database_ddl
+                session = get_active_session()
+                source_db = session.get("source")
+                if not source_db:
+                    raise Exception("No source database selected for auto-extraction")
+                
+                connection_info = get_connection_by_id(source_db["id"])
+                if not connection_info:
+                    raise Exception("Source database connection not found for auto-extraction")
+                
         
         # Phase 2: Getting session info
         structure_migration_status["phase"] = "Getting session information"
