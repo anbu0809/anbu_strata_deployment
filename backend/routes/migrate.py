@@ -549,13 +549,7 @@ async def run_structure_migration_task():
         # Phase 1: Loading extraction results
         structure_migration_status["phase"] = "Loading extraction results"
         structure_migration_status["percent"] = 10
-        
-        # Check if extraction bundle exists
-        # if not os.path.exists("artifacts/extraction_bundle.json"):
-        #     raise Exception("Extraction bundle not found. Please run extraction first.")
-        
-        # with open("artifacts/extraction_bundle.json", "r") as f:
-        #     extraction_data = json.load(f)
+
         # Check if extraction bundle exists, if not try to run extraction automatically
         extraction_bundle_path = "artifacts/extraction_bundle.json"
         if not os.path.exists(extraction_bundle_path):
@@ -566,44 +560,51 @@ async def run_structure_migration_task():
                 source_db = session.get("source")
                 if not source_db:
                     raise Exception("No source database selected for auto-extraction")
-                
+
                 connection_info = get_connection_by_id(source_db["id"])
                 if not connection_info:
                     raise Exception("Source database connection not found for auto-extraction")
-                
-        
+
+                extraction_data = extract_database_ddl(connection_info)
+                print("Automatic extraction completed successfully")
+            except Exception as e:
+                raise Exception(f"Failed to run automatic extraction: {str(e)}")
+        else:
+            with open(extraction_bundle_path, "r") as f:
+                extraction_data = json.load(f)
+
         # Phase 2: Getting session info
         structure_migration_status["phase"] = "Getting session information"
         structure_migration_status["percent"] = 20
-        
+
         session = get_active_session()
         source_db = session.get("source")
         target_db = session.get("target")
-        
+
         if not source_db or not target_db:
             raise Exception("Source or target database not selected")
-        
+
         # Get full connection details
         source_connection_info = get_connection_by_id(source_db["id"])
         target_connection_info = get_connection_by_id(target_db["id"])
-        
+
         if not source_connection_info or not target_connection_info:
             raise Exception("Source or target database connection not found")
-        
+
         # Phase 3: Translating schema to target dialect using AI
         structure_migration_status["phase"] = "Translating schema to target dialect"
         structure_migration_status["percent"] = 40
-        
+
         # Use AI to translate schema
         translation_result = translate_schema(
             source_dialect=source_db["dbType"],
             target_dialect=target_db["dbType"],
             input_ddl_json=extraction_data
         )
-        
+
         # Debug: Log what AI returned
         print(f"AI Translation Result: {translation_result}")
-        
+
         # Store translated queries and notes
         translated_ddl = translation_result.get("translated_ddl", "")
         # Store the original structure for processing
@@ -618,7 +619,7 @@ async def run_structure_migration_task():
                 structure_migration_status["translated_queries_original"] = translated_ddl
         else:
             structure_migration_status["translated_queries_original"] = translated_ddl
-        
+
         # Store formatted version for display
         if isinstance(translated_ddl, dict):
             # Format it as JSON for better display in the UI
@@ -626,50 +627,50 @@ async def run_structure_migration_task():
         else:
             structure_migration_status["translated_queries"] = translated_ddl
         structure_migration_status["notes"] = translation_result.get("notes", "")
-        
+
         # Additional debug info
         print(f"Translated DDL type: {type(translated_ddl)}")
         if isinstance(translated_ddl, dict):
             print(f"Translated DDL keys: {translated_ddl.keys()}")
         elif isinstance(translated_ddl, str):
             print(f"Translated DDL length: {len(translated_ddl)}")
-        
+
         # Debug the stored values
         print(f"translated_queries_original type: {type(structure_migration_status['translated_queries_original'])}")
         print(f"translated_queries_original: {structure_migration_status['translated_queries_original']}")
-        
+
         # Validate that we got something from AI
         if not translated_ddl or (isinstance(translated_ddl, str) and not translated_ddl.strip()):
             raise Exception("AI failed to generate DDL queries. Please check your OpenAI API key and connection.")
-        
+
         # Phase 4: Validating DDL syntax
         structure_migration_status["phase"] = "Validating DDL syntax"
         structure_migration_status["percent"] = 60
-        
+
         # In a real implementation, you would validate the DDL syntax here
         # For now, we'll simulate this step
         await asyncio.sleep(1)
-        
+
         # Phase 5: Connecting to target database
         structure_migration_status["phase"] = "Connecting to target database"
         structure_migration_status["percent"] = 70
-        
+
         # Check if connection info exists
         if not target_connection_info:
             raise Exception("No target database configured. Please set up a target database connection through the UI.")
-        
+
         if not target_connection_info.get("credentials"):
             raise Exception("Target database credentials missing. Please configure the target database connection.")
-        
+
         try:
             target_connection = connect_to_database(target_connection_info)
         except Exception as e:
             raise Exception(f"Failed to connect to target database: {str(e)}")
-        
+
         # Phase 5.5: Drop existing tables to avoid conflicts
         structure_migration_status["phase"] = "Dropping existing tables"
         structure_migration_status["percent"] = 75
-        
+
         try:
             cursor = target_connection.cursor()
             # Drop tables in reverse order to handle dependencies
@@ -684,11 +685,11 @@ async def run_structure_migration_task():
         except Exception as e:
             print(f"Warning: Failed to drop existing tables: {e}")
             # Continue anyway
-        
+
         # Phase 6: Creating tables in target
         structure_migration_status["phase"] = "Creating tables in target"
         structure_migration_status["percent"] = 80
-        
+
         # Apply the translated DDL to target database
         if structure_migration_status["translated_queries_original"]:
             # Check if we have valid DDL data
@@ -696,7 +697,7 @@ async def run_structure_migration_task():
             print(f"Applying DDL data of type: {type(ddl_data)}")
             if isinstance(ddl_data, str) and not ddl_data.strip():
                 raise Exception("AI returned empty DDL queries")
-            
+
             # Ensure we have the correct data format for processing
             if isinstance(ddl_data, str):
                 try:
@@ -707,7 +708,7 @@ async def run_structure_migration_task():
                 except json.JSONDecodeError:
                     # If parsing fails, continue with string data
                     pass
-            
+
             try:
                 apply_ddl_to_target(target_connection, ddl_data)
             except Exception as e:
@@ -718,14 +719,14 @@ async def run_structure_migration_task():
                 print(f"DDL Data repr: {repr(ddl_data)}")
                 # Re-raise the exception to ensure the migration fails
                 raise Exception(error_msg)
-        
+
         # Phase 7: Finalizing structure migration
         structure_migration_status["phase"] = "Finalizing structure migration"
         structure_migration_status["percent"] = 100
-        
+
         # Update status
         structure_migration_status["done"] = True
-        
+
     except Exception as e:
         structure_migration_status["error"] = str(e)
         structure_migration_status["done"] = True
